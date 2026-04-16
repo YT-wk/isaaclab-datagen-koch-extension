@@ -349,6 +349,29 @@ def setup_teleop_device(callbacks: dict[str, Callable], env_cfg) -> object:
     return teleop_interface
 
 
+def setup_keyboard_shortcuts(callbacks: dict[str, Callable], teleop_interface: object) -> Se3Keyboard | None:
+    """Enable keyboard-only hotkeys when the main teleop device is not keyboard based."""
+    if args_cli.headless or os.environ.get("HEADLESS", "0") not in ("0", "", "False", "false"):
+        return None
+
+    if "keyboard" in teleop_interface.__class__.__name__.lower():
+        return None
+
+    try:
+        shortcut_listener = Se3Keyboard(
+            Se3KeyboardCfg(pos_sensitivity=0.0, rot_sensitivity=0.0, gripper_term=False)
+        )
+    except Exception as exc:
+        logger.warning(f"Failed to enable keyboard shortcut listener: {exc}")
+        return None
+
+    for key, callback in callbacks.items():
+        shortcut_listener.add_callback(key, callback)
+
+    print("Keyboard shortcuts enabled: press R to reset the current recording episode.")
+    return shortcut_listener
+
+
 def setup_ui(label_text: str, env: gym.Env) -> InstructionDisplay:
     """初始化录制时的提示界面。"""
     instruction_display = InstructionDisplay(args_cli.xr)
@@ -424,6 +447,7 @@ def run_simulation_loop(env: gym.Env, env_cfg, success_term: object | None, rate
 
     teleop_interface = setup_teleop_device(teleoperation_callbacks, env_cfg)
     teleop_interface.add_callback("R", reset_recording_instance)
+    keyboard_shortcuts = setup_keyboard_shortcuts(teleoperation_callbacks, teleop_interface)
 
     # 录制开始前先做一次 reset，确保环境和 teleop 设备都处于干净状态。
     env.sim.reset()
@@ -488,6 +512,7 @@ def run_simulation_loop(env: gym.Env, env_cfg, success_term: object | None, rate
             if rate_limiter:
                 rate_limiter.sleep(env)
 
+    del keyboard_shortcuts
     return current_recorded_demo_count
 
 
