@@ -27,7 +27,11 @@ from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.controllers.differential_ik_cfg import DifferentialIKControllerCfg
 from isaaclab.devices.device_base import DeviceCfg, DevicesCfg
 from isaaclab.envs import ManagerBasedEnv, ManagerBasedRLEnv, ManagerBasedRLEnvCfg
-from isaaclab.envs.mdp.actions.actions_cfg import JointPositionActionCfg, RelativeJointPositionActionCfg
+from isaaclab.envs.mdp.actions.actions_cfg import (
+    JointPositionActionCfg,
+    JointVelocityActionCfg,
+    RelativeJointPositionActionCfg,
+)
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
@@ -467,6 +471,7 @@ class EventCfg:
 class ActionsCfg:
     """自定义操作环境的动作项配置。"""
 
+    base_action: JointVelocityActionCfg | None = None
     arm_action: LatchedDifferentialInverseKinematicsActionCfg = MISSING
     wrist_action: RelativeJointPositionActionCfg = MISSING
     gripper_action: mdp.BinaryJointPositionActionCfg | JointPositionActionCfg = MISSING
@@ -595,7 +600,7 @@ class MyCustomMimicEnvCfg(ManagerBasedRLEnvCfg):
     # 替换为你自己的大场景世界资产路径。
     world_usdz_path: str = "/root/gpufree-data/UsdFiles/mygauss.usd"
     # 替换为你自己的 Koch 机器人 USD 路径。
-    koch_robot_usd_path: str = "/root/gpufree-data/UsdFiles/roal_wheel_robot_0325v1/roal_wheel_robot_0325v1.usd"
+    koch_robot_usd_path: str = "/root/gpufree-data/UsdFiles/0417cylinder_mesh_road_wheel_robot_v1.usd"
     # 替换为任务物体路径。
     # 默认语义：object_a 是抓取物体，object_b 是盒子容器。
     object_a_usd_path: str = "/root/gpufree-data/UsdFiles/banana_0305/banana/banana.usd"
@@ -630,6 +635,19 @@ class MyCustomMimicEnvCfg(ManagerBasedRLEnvCfg):
     )
     koch_wrist_joint_names: tuple[str, ...] = ("arm_j5_v2_joint",)
     koch_gripper_joint_names: tuple[str, ...] = ("arm_j6_v2_joint",)
+    # 仅在混合底盘+机械臂 teleop 模式下使用。
+    # 这里给出的是待核对的默认占位名；如果你的 USD 名称不同，可在脚本里通过
+    # --base-wheel-joint-names 覆盖，避免影响当前固定底盘接口。
+    koch_base_wheel_joint_names: tuple[str, ...] = (
+        "j1_joint",
+        "j2_joint",
+        "j3_joint",
+        "j4_joint",
+    )
+    koch_base_wheel_radius_m: float = 0.05
+    koch_base_wheel_half_length_m: float = 0.18
+    koch_base_wheel_half_width_m: float = 0.16
+    koch_base_wheel_velocity_signs: tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0)
 
     # 这里的刚体名和 frame 路径必须与实际 Koch USD articulation 保持一致。
     koch_ee_body_name: str = "motor6_fixer_v3_link"
@@ -686,6 +704,9 @@ class MyCustomMimicEnvCfg(ManagerBasedRLEnvCfg):
     teleop_wrist_negative_key: str = "X"
     teleop_gripper_toggle_key: str = "K"
     teleop_clear_buffer_key: str = "L"
+    teleop_base_vx_sensitivity: float = 0.4
+    teleop_base_vy_sensitivity: float = 0.4
+    teleop_base_omega_sensitivity: float = 0.8
 
     # 可选的外部遥操作设备接口，例如真实的主手臂或 leader arm。
     external_master_arm_device: DeviceCfg | None = None
@@ -738,11 +759,20 @@ class MyCustomMimicEnvCfg(ManagerBasedRLEnvCfg):
 
         # 让机械臂从零位、夹爪张开开始，便于 Mimic 示教从中性的预抓取姿态起步。
         joint_init = {joint_name: 0.0 for joint_name in self.koch_arm_joint_names}
+        for wheel_joint in self.koch_base_wheel_joint_names:
+            joint_init[wheel_joint] = 0.0
         for gripper_joint in self.koch_gripper_joint_names:
             joint_init[gripper_joint] = self.koch_gripper_open_command
 
         # 对当前导入的 USD 机器人而言，隐式执行器是最简单且相对稳定的配置。
         robot_actuators: dict[str, ImplicitActuatorCfg] = {
+            "koch_base_wheels": ImplicitActuatorCfg(
+                joint_names_expr=list(self.koch_base_wheel_joint_names),
+                effort_limit_sim=400.0,
+                stiffness=0.0,
+                # Hybrid mode drives these joints through velocity targets.
+                damping=50.0,
+            ),
             "koch_arm": ImplicitActuatorCfg(
                 joint_names_expr=list(self.koch_arm_joint_names),
                 effort_limit_sim=20.0,
