@@ -48,6 +48,7 @@ from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
 from isaaclab_tasks.manager_based.manipulation.stack import mdp
 
 from .latched_ik_action import LatchedDifferentialInverseKinematicsActionCfg
+from .mecanum_position_only_ik_keyboard import MecanumPositionOnlyIKKeyboardCfg
 from .position_only_ik_keyboard import PositionOnlyIKKeyboardCfg
 
 
@@ -647,7 +648,7 @@ class MyCustomMimicEnvCfg(ManagerBasedRLEnvCfg):
     koch_base_wheel_radius_m: float = 0.05
     koch_base_wheel_half_length_m: float = 0.18
     koch_base_wheel_half_width_m: float = 0.16
-    koch_base_wheel_velocity_signs: tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0)
+    koch_base_wheel_velocity_signs: tuple[float, float, float, float] = (1.0, -1.0, 1.0, 1.0)
 
     # 这里的刚体名和 frame 路径必须与实际 Koch USD articulation 保持一致。
     koch_ee_body_name: str = "motor6_fixer_v3_link"
@@ -707,9 +708,8 @@ class MyCustomMimicEnvCfg(ManagerBasedRLEnvCfg):
     teleop_base_vx_sensitivity: float = 0.4
     teleop_base_vy_sensitivity: float = 0.4
     teleop_base_omega_sensitivity: float = 0.8
-
-    # 可选的外部遥操作设备接口，例如真实的主手臂或 leader arm。
-    external_master_arm_device: DeviceCfg | None = None
+    teleop_fixed_base: bool = True
+    teleop_arm_source: str = "keyboard"
 
     # 大场景中的相机摆位配置。
     cam_front_pos: tuple[float, float, float] = (1.0, 0.0, 0.42)
@@ -731,6 +731,11 @@ class MyCustomMimicEnvCfg(ManagerBasedRLEnvCfg):
             raise ValueError(
                 "external_master_arm_gripper_close_direction must be 'positive' or 'negative', "
                 f"got {self.external_master_arm_gripper_close_direction!r}"
+            )
+        if self.teleop_arm_source not in ("keyboard", "remote_master_arm"):
+            raise ValueError(
+                "teleop_arm_source must be 'keyboard' or 'remote_master_arm', "
+                f"got {self.teleop_arm_source!r}"
             )
 
         self.decimation = 5
@@ -873,10 +878,30 @@ class MyCustomMimicEnvCfg(ManagerBasedRLEnvCfg):
                     clear_buffer_key=self.teleop_clear_buffer_key,
                     sim_device=self.sim.device,
                 ),
+                "keyboard_mecanum": MecanumPositionOnlyIKKeyboardCfg(
+                    pos_sensitivity=self.teleop_pos_sensitivity,
+                    wrist_sensitivity=self.teleop_wrist_sensitivity,
+                    x_positive_key=self.teleop_x_positive_key,
+                    x_negative_key=self.teleop_x_negative_key,
+                    y_positive_key=self.teleop_y_positive_key,
+                    y_negative_key=self.teleop_y_negative_key,
+                    z_positive_key=self.teleop_z_positive_key,
+                    z_negative_key=self.teleop_z_negative_key,
+                    wrist_positive_key=self.teleop_wrist_positive_key,
+                    wrist_negative_key=self.teleop_wrist_negative_key,
+                    gripper_toggle_key=self.teleop_gripper_toggle_key,
+                    clear_buffer_key=self.teleop_clear_buffer_key,
+                    base_vx_sensitivity=self.teleop_base_vx_sensitivity,
+                    base_vy_sensitivity=self.teleop_base_vy_sensitivity,
+                    base_omega_sensitivity=self.teleop_base_omega_sensitivity,
+                    wheel_radius=self.koch_base_wheel_radius_m,
+                    wheel_base_half_length=self.koch_base_wheel_half_length_m,
+                    wheel_base_half_width=self.koch_base_wheel_half_width_m,
+                    wheel_velocity_signs=self.koch_base_wheel_velocity_signs,
+                    sim_device=self.sim.device,
+                ),
             }
         )
-        if self.external_master_arm_device is not None:
-            self.teleop_devices.devices["external_master_arm"] = self.external_master_arm_device
 
         # 这个 frame transformer 定义了末端执行器参考系。
         # 观测项和 Mimic 的动作/位姿转换都依赖这里的定义。
