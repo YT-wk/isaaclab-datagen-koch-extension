@@ -52,6 +52,7 @@ simulation_app = app_launcher.app
 
 
 import gymnasium as gym
+import numpy as np
 import omni.ui as ui
 import torch
 
@@ -98,6 +99,73 @@ class RateLimiter:
         if self.last_time < time.time():
             while self.last_time < time.time():
                 self.last_time += self.sleep_duration
+
+
+class CameraPreviewWidget:
+    """Minimal RGB image widget backed by an Omni UI byte image provider."""
+
+    def __init__(self, image: np.ndarray, label: str, widget_height: int = 240):
+        self._provider = ui.ByteImageProvider()
+        self._widget_height = widget_height
+        self._label = label
+        self._aspect_ratio = 1.0
+
+        with ui.VStack(spacing=4):
+            ui.Label(self._label)
+            self._frame = ui.Frame(width=ui.Fraction(1), height=self._widget_height)
+            with self._frame:
+                self._image = ui.ImageWithProvider(self._provider)
+
+        self.update_image(image)
+
+    def update_image(self, image: np.ndarray):
+        image = np.ascontiguousarray(image)
+        if image.ndim == 3 and image.shape[0] in (1, 3, 4):
+            image = np.moveaxis(image, 0, -1)
+
+        height, width = image.shape[:2]
+        self._aspect_ratio = width / max(height, 1)
+
+        if image.ndim == 2:
+            image = np.repeat(image[..., None], 3, axis=2)
+        if image.ndim == 3 and image.shape[2] == 1:
+            image = np.repeat(image, 3, axis=2)
+        if image.ndim == 3 and image.shape[2] == 3:
+            alpha = np.full((height, width, 1), 255, dtype=np.uint8)
+            image = np.concatenate((image, alpha), axis=2)
+
+        self._frame.width = ui.Pixel(int(round(self._aspect_ratio * self._widget_height)))
+        self._provider.set_bytes_data(image.flatten().data, [width, height])
+
+
+class CameraPreviewPanel:
+    """Small dockable UI windows that show live RGB previews from environment cameras."""
+
+    def __init__(self, env: gym.Env, camera_names: list[str]):
+        self._plots: dict[str, CameraPreviewWidget] = {}
+        self._windows: list[EmptyWindow] = []
+
+        for camera_name in camera_names:
+            if camera_name not in env.scene.sensors:
+                continue
+            sensor = env.scene.sensors[camera_name]
+            if "rgb" not in sensor.data.output:
+                continue
+
+            initial_image = sensor.data.output["rgb"][0].cpu().numpy()
+            window = EmptyWindow(env, f"{camera_name} Preview")
+            with window.ui_window_elements["main_vstack"]:
+                self._plots[camera_name] = CameraPreviewWidget(
+                    image=initial_image,
+                    label=camera_name,
+                    widget_height=240,
+                )
+            self._windows.append(window)
+
+    def update(self, env: gym.Env):
+        for camera_name, plot in self._plots.items():
+            image = env.scene.sensors[camera_name].data.output["rgb"][0].cpu().numpy()
+            plot.update_image(np.ascontiguousarray(image))
 
 
 def setup_output_directories() -> tuple[str, str]:
@@ -273,6 +341,9 @@ def run_simulation_loop(env: gym.Env, env_cfg, success_term: object | None, tele
 
     label_text = f"Recorded {current_recorded_demo_count} successful demonstrations."
     instruction_display = setup_ui(label_text, env)
+    camera_preview_panel = None
+    if not args_cli.xr and not args_cli.headless and hasattr(env.cfg, "image_obs_list"):
+        camera_preview_panel = CameraPreviewPanel(env, list(env.cfg.image_obs_list))
     subtasks = {}
 
     with contextlib.suppress(KeyboardInterrupt), torch.inference_mode():
@@ -282,6 +353,8 @@ def run_simulation_loop(env: gym.Env, env_cfg, success_term: object | None, tele
 
             if running_recording_instance:
                 obv = env.step(actions)
+                if camera_preview_panel is not None:
+                    camera_preview_panel.update(env)
                 if subtasks is not None:
                     if subtasks == {}:
                         subtasks = obv[0].get("subtask_terms")
@@ -289,6 +362,8 @@ def run_simulation_loop(env: gym.Env, env_cfg, success_term: object | None, tele
                         show_subtask_instructions(instruction_display, subtasks, obv, env.cfg)
             else:
                 env.sim.render()
+                if camera_preview_panel is not None:
+                    camera_preview_panel.update(env)
 
             success_step_count, success_reset_needed = process_success_condition(env, success_term, success_step_count)
             if success_reset_needed:

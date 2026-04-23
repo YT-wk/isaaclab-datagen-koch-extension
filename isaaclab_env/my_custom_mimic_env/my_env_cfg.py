@@ -43,7 +43,7 @@ from isaaclab.sensors.frame_transformer.frame_transformer_cfg import FrameTransf
 from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
 from isaaclab.utils import configclass
-from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
+from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR,ISAAC_NUCLEUS_DIR
 
 from isaaclab_tasks.manager_based.manipulation.stack import mdp
 
@@ -62,7 +62,7 @@ class MyLargeSceneCfg(InteractiveSceneCfg):
 
     stage = AssetBaseCfg(
         prim_path="/World/Stage",
-        spawn=UsdFileCfg(usd_path="/root/gpufree-data/UsdFiles/Simple_Room/simple_room.usd"),
+        spawn=UsdFileCfg(usd_path="/media/robot/ef64217c-7820-452d-931f-2253a903882d/robot/Files/usd_files_new/gauss_with_ground0409v1.usd"),
     )
 
     robot: ArticulationCfg = MISSING
@@ -103,6 +103,10 @@ def spawn_usd_with_physics_fallback(
 
     matched_paths = sim_utils.find_matching_prim_paths(prim_path)
     for matched_path in matched_paths:
+        fallback_rigid_props = cfg.rigid_props or sim_utils.RigidBodyPropertiesCfg()
+        kinematic_enabled = (
+            False if fallback_rigid_props.kinematic_enabled is None else fallback_rigid_props.kinematic_enabled
+        )
         # 保留资产原有的关节结构。
         # 如果在这里粗暴禁用所有关节，带子结构的模型可能会出现“部件脱离”或“直接消失”的现象。
         # 若某个资产确实存在 root_joint 警告，优先修正该资产本身，或将其作为 articulation 处理，
@@ -120,9 +124,7 @@ def spawn_usd_with_physics_fallback(
                 matched_path,
                 sim_utils.RigidBodyPropertiesCfg(
                     rigid_body_enabled=True,
-                    kinematic_enabled=(
-                        False if fallback_rigid_props.kinematic_enabled is None else fallback_rigid_props.kinematic_enabled
-                    ),
+                    kinematic_enabled=kinematic_enabled,
                     disable_gravity=(
                         False if fallback_rigid_props.disable_gravity is None else fallback_rigid_props.disable_gravity
                     ),
@@ -139,6 +141,11 @@ def spawn_usd_with_physics_fallback(
             predicate=lambda p: p.HasAPI(UsdPhysics.CollisionAPI),
             traverse_instance_prims=False,
         )
+        collider_mesh_prims = sim_utils.get_all_matching_child_prims(
+            matched_path,
+            predicate=lambda p: p.HasAPI(UsdPhysics.CollisionAPI) and p.IsA(UsdGeom.Mesh),
+            traverse_instance_prims=False,
+        )
         if len(collision_prims) == 0:
             mesh_prims = sim_utils.get_all_matching_child_prims(
                 matched_path,
@@ -149,6 +156,22 @@ def spawn_usd_with_physics_fallback(
                 sim_utils.define_collision_properties(
                     mesh_prim.GetPath().pathString,
                     sim_utils.CollisionPropertiesCfg(collision_enabled=True),
+                )
+            collider_mesh_prims = sim_utils.get_all_matching_child_prims(
+                matched_path,
+                predicate=lambda p: p.HasAPI(UsdPhysics.CollisionAPI) and p.IsA(UsdGeom.Mesh),
+                traverse_instance_prims=False,
+            )
+
+        # Dynamic rigid bodies cannot use triangle-mesh style collision approximations.
+        # Office/scanned assets at tiny scales can also fail SDF/convex cooking, so use
+        # a conservative proxy that is much more likely to yield a valid PhysX shape.
+        if not kinematic_enabled:
+            for mesh_prim in collider_mesh_prims:
+                sim_utils.define_mesh_collision_properties(
+                    mesh_prim.GetPath().pathString,
+                    # sim_utils.SDFMeshPropertiesCfg(),
+                    sim_utils.BoundingCubePropertiesCfg(),
                 )
 
     return prim
@@ -500,13 +523,13 @@ class ObservationsCfg:
 
     @configclass
     class RGBCameraPolicyCfg(ObsGroup):
-        cam_front_rgb = ObsTerm(
+        cam_up_rgb = ObsTerm(
             func=image,
-            params={"sensor_cfg": SceneEntityCfg("cam_front"), "data_type": "rgb", "normalize": False},
+            params={"sensor_cfg": SceneEntityCfg("cam_up"), "data_type": "rgb", "normalize": False},
         )
-        cam_side_rgb = ObsTerm(
+        cam_arm_rgb = ObsTerm(
             func=image,
-            params={"sensor_cfg": SceneEntityCfg("cam_side"), "data_type": "rgb", "normalize": False},
+            params={"sensor_cfg": SceneEntityCfg("cam_arm"), "data_type": "rgb", "normalize": False},
         )
 
         def __post_init__(self):
@@ -584,33 +607,38 @@ class MyCustomMimicEnvCfg(ManagerBasedRLEnvCfg):
     rewards = None
     curriculum = None
 
-    # # 替换为你自己的大场景世界资产路径。
-    # world_usdz_path: str = "/media/robot/ef64217c-7820-452d-931f-2253a903882d/robot/Files/usd_files_new/gauss_with_ground0409v1.usd"
-    # # 替换为你自己的 Koch 机器人 USD 路径。
+    # 替换为你自己的大场景世界资产路径。
+    world_usdz_path: str = "/media/robot/ef64217c-7820-452d-931f-2253a903882d/robot/Files/usd_files_new/gauss_with_ground0409v1.usd"
+    # 替换为你自己的 Koch 机器人 USD 路径。
     # koch_robot_usd_path: str = "/media/robot/ef64217c-7820-452d-931f-2253a903882d/robot/Files/usd_files_new/roal_wheel_robot_0325v1/roal_wheel_robot_0325v1.usd"
+    koch_robot_usd_path: str = "/media/robot/ef64217c-7820-452d-931f-2253a903882d/robot/Files/usd_files_new/orin_roal_wheel_robot_0325v1/roal_wheel_robot_0325v1.usd"
+    # koch_robot_usd_path: str = "/media/robot/ef64217c-7820-452d-931f-2253a903882d/robot/Files/usd_files_new/arm_robot_v2_0701/arm_robot_v2_0701.usd"
+    # 替换为任务物体路径。
+    # object_a_usd_path 表示被抓取物体，object_b_usd_path 表示目标容器/承载物。
+    object_a_usd_path: str = "/media/robot/74E24312E242D7CE/isaacsim5_0_assets/isaacsim_assets/Assets/Isaac/5.1/Isaac/Environments/Office/Props/SM_BottleB.usd"
+    # object_a_usd_path: str = f"/media/robot/74E24312E242D7CE/isaacsim5_0_assets/isaacsim_assets/Assets/Isaac/5.1/Isaac/IsaacLab/Objects/ToyTruck/toy_truck.usd"
+    object_b_usd_path: str = f"/media/robot/74E24312E242D7CE/isaacsim5_0_assets/isaacsim_assets/Assets/Isaac/5.1/Isaac/IsaacLab/Objects/Box/box.usd"
+    # 资产缩放倍率通常是排查模型尺寸不匹配时最先要调的参数。
+    world_scale: tuple[float, float, float] | None = None
+    koch_robot_scale: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    # object_a_scale: tuple[float, float, float] = (0.0005, 0.0005, 0.0005)
+    object_a_scale: tuple[float, float, float] = (0.5, 0.5, 0.5)
+    object_b_scale: tuple[float, float, float] = (0.5, 0.5, 0.3)
+
+    # # 替换为你自己的大场景世界资产路径。
+    # world_usdz_path: str = "/root/gpufree-data/UsdFiles/mygauss.usd"
+    # # 替换为你自己的 Koch 机器人 USD 路径。
+    # koch_robot_usd_path: str = "/root/gpufree-data/UsdFiles/0417cylinder_mesh_road_wheel_robot_v1.usd"
     # # 替换为任务物体路径。
-    # # object_a_usd_path 表示被抓取物体，object_b_usd_path 表示目标容器/承载物。
-    # object_a_usd_path: str = "/media/robot/ef64217c-7820-452d-931f-2253a903882d/robot/Files/usd_files_new/banana_0305/banana/banana.usd"
+    # # 默认语义：object_a 是抓取物体，object_b 是盒子容器。
+    # object_a_usd_path: str = "/root/gpufree-data/UsdFiles/banana_0305/banana/banana.usd"
+    # # object_a_usd_path: str = f"{ISAAC_NUCLEUS_DIR}/Environments/Office/Props/SM_BottleB.usd"
     # object_b_usd_path: str = f"{ISAACLAB_NUCLEUS_DIR}/Objects/Box/box.usd"
     # # 资产缩放倍率通常是排查模型尺寸不匹配时最先要调的参数。
     # world_scale: tuple[float, float, float] | None = None
     # koch_robot_scale: tuple[float, float, float] = (1.0, 1.0, 1.0)
-    # object_a_scale: tuple[float, float, float] = (0.005, 0.005, 0.005)
-    # object_b_scale: tuple[float, float, float] = (0.5, 0.5, 0.5)
-
-    # 替换为你自己的大场景世界资产路径。
-    world_usdz_path: str = "/root/gpufree-data/UsdFiles/mygauss.usd"
-    # 替换为你自己的 Koch 机器人 USD 路径。
-    koch_robot_usd_path: str = "/root/gpufree-data/UsdFiles/0417cylinder_mesh_road_wheel_robot_v1.usd"
-    # 替换为任务物体路径。
-    # 默认语义：object_a 是抓取物体，object_b 是盒子容器。
-    object_a_usd_path: str = "/root/gpufree-data/UsdFiles/banana_0305/banana/banana.usd"
-    object_b_usd_path: str = f"{ISAACLAB_NUCLEUS_DIR}/Objects/Box/box.usd"
-    # 资产缩放倍率通常是排查模型尺寸不匹配时最先要调的参数。
-    world_scale: tuple[float, float, float] | None = None
-    koch_robot_scale: tuple[float, float, float] = (1.0, 1.0, 1.0)
-    object_a_scale: tuple[float, float, float] = (0.7, 0.7, 0.7)
-    object_b_scale: tuple[float, float, float] = (0.5, 0.5, 0.3)
+    # object_a_scale: tuple[float, float, float] = (0.7, 0.7, 0.7)
+    # object_b_scale: tuple[float, float, float] = (0.5, 0.5, 0.3)
 
     # IK 稳定性相关参数。
     # 当前默认使用“前 4 关节做 position-only IK + 第 5 关节单独键控”的混合控制，
@@ -636,6 +664,23 @@ class MyCustomMimicEnvCfg(ManagerBasedRLEnvCfg):
     )
     koch_wrist_joint_names: tuple[str, ...] = ("arm_j5_v2_joint",)
     koch_gripper_joint_names: tuple[str, ...] = ("arm_j6_v2_joint",)
+
+    # koch_arm_joint_names: tuple[str, ...] = (
+    #     "Joint_1_joint",
+    #     "Joint_2_joint",
+    #     "Joint_3_joint",
+    #     "Joint_4_joint",
+    #     "Joint_5_joint",
+    # )
+    # koch_ik_joint_names: tuple[str, ...] = (
+    #     "Joint_1_joint",
+    #     "Joint_2_joint",
+    #     "Joint_3_joint",
+    #     "Joint_4_joint",
+    # )
+    # koch_wrist_joint_names: tuple[str, ...] = ("Joint_5_joint",)
+    # koch_gripper_joint_names: tuple[str, ...] = ("Joint_Gripper_joint",)
+
     # 仅在混合底盘+机械臂 teleop 模式下使用。
     # 这里给出的是待核对的默认占位名；如果你的 USD 名称不同，可在脚本里通过
     # --base-wheel-joint-names 覆盖，避免影响当前固定底盘接口。
@@ -656,6 +701,12 @@ class MyCustomMimicEnvCfg(ManagerBasedRLEnvCfg):
     koch_ee_frame_prim_path: str = (
         "{ENV_REGEX_NS}/roal_wheel_robot_0325v1/motor6_fixer_v3_link"
     )
+    # koch_ee_body_name: str = "Gripper_link"
+    # koch_base_frame_prim_path: str = "{ENV_REGEX_NS}/arm_robot_v2_0701/base_link"
+    # koch_ee_frame_prim_path: str = (
+    #     "{ENV_REGEX_NS}/arm_robot_v2_0701/Gripper_link"
+    # )
+
 
     # 如果 TCP 不在末端刚体原点上，可以在这里补位置和姿态偏置。
     koch_ee_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
@@ -712,10 +763,13 @@ class MyCustomMimicEnvCfg(ManagerBasedRLEnvCfg):
     teleop_arm_source: str = "keyboard"
 
     # 大场景中的相机摆位配置。
-    cam_front_pos: tuple[float, float, float] = (1.0, 0.0, 0.42)
-    cam_front_rot: tuple[float, float, float, float] = (0.35355, -0.61237, -0.61237, 0.35355)
-    cam_side_pos: tuple[float, float, float] = (0.65, -0.65, 0.35)
-    cam_side_rot: tuple[float, float, float, float] = (0.18301, -0.68301, -0.68301, 0.18301)
+    cam_up_pos: tuple[float, float, float] = (0, 0.12595, 0.48127)
+    cam_up_rot: tuple[float, float, float, float] = (0.97346, 0.22888, 0, 0)
+    cam_arm_pos: tuple[float, float, float] = (0, 0.04052, 0.03643)
+    cam_arm_rot: tuple[float, float, float, float] = (0.9996128, -0.0278257, 0, 0)
+    cam_up_parent_prim_path: str = "{ENV_REGEX_NS}/roal_wheel_robot_0325v1/base_link"
+    cam_arm_parent_prim_path: str = "{ENV_REGEX_NS}/roal_wheel_robot_0325v1/motor5_fixer_v3_link"
+
 
     def __post_init__(self):
         """在所有可覆写字段就位后，完成自定义场景的最终配置。"""
@@ -964,40 +1018,40 @@ class MyCustomMimicEnvCfg(ManagerBasedRLEnvCfg):
         self.events.randomize_object_ab_positions.params["pair_distance_range"] = self.object_ab_distance_range_m
 
         # 配置两个固定外部视角相机，供 Mimic 或视觉策略读取。
-        self.scene.cam_front = CameraCfg(
-            prim_path="{ENV_REGEX_NS}/cam_front",
+        self.scene.cam_up = CameraCfg(
+            prim_path=f"{self.cam_up_parent_prim_path}/cam_up",
             update_period=0.0,
             height=240,
             width=320,
             data_types=["rgb", "distance_to_image_plane"],
             spawn=sim_utils.PinholeCameraCfg(
-                focal_length=24.0,
+                focal_length=18.14756,
                 focus_distance=400.0,
                 horizontal_aperture=20.955,
-                clipping_range=(0.1, 20.0),
+                clipping_range=(0.01, 10000.0),
             ),
             offset=CameraCfg.OffsetCfg(
-                pos=self.cam_front_pos,
-                rot=self.cam_front_rot,
-                convention="ros",
+                pos=self.cam_up_pos,
+                rot=self.cam_up_rot,
+                convention="opengl",
             ),
         )
-        self.scene.cam_side = CameraCfg(
-            prim_path="{ENV_REGEX_NS}/cam_side",
+        self.scene.cam_arm = CameraCfg(
+            prim_path=f"{self.cam_arm_parent_prim_path}/cam_arm",
             update_period=0.0,
             height=240,
             width=320,
             data_types=["rgb", "distance_to_image_plane"],
             spawn=sim_utils.PinholeCameraCfg(
-                focal_length=24.0,
+                focal_length=18.14756,
                 focus_distance=400.0,
                 horizontal_aperture=20.955,
-                clipping_range=(0.1, 20.0),
+                clipping_range=(0.01, 10000.0),
             ),
             offset=CameraCfg.OffsetCfg(
-                pos=self.cam_side_pos,
-                rot=self.cam_side_rot,
-                convention="ros",
+                pos=self.cam_arm_pos,
+                rot=self.cam_arm_rot,
+                convention="opengl",
             ),
         )
 
@@ -1005,4 +1059,4 @@ class MyCustomMimicEnvCfg(ManagerBasedRLEnvCfg):
         # 同时也能避免调试时过于明显的“多帧重置”视觉跳变。
         self.num_rerenders_on_reset = 1
         self.sim.render.antialiasing_mode = "DLAA"
-        self.image_obs_list = ["cam_front", "cam_side"]
+        self.image_obs_list = ["cam_up", "cam_arm"]
