@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">Mode 4 video thumbnail</title>
+  <desc id="desc">Mobile base with remote master arm teleoperation.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3c1832" />
+      <stop offset="100%" stop-color="#915086" />
+    </linearGradient>
+  </defs>
+  <rect width="960" height="540" fill="url(#bg)" rx="28" />
+  <rect x="36" y="36" width="888" height="468" fill="none" stroke="#f1d9ed" stroke-width="3" rx="22" opacity="0.7" />
+  <circle cx="480" cy="270" r="74" fill="#ffffff" opacity="0.96" />
+  <polygon points="455,226 455,314 532,270" fill="#612c5a" />
+  <text x="72" y="110" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="46" font-weight="700">Mode 4</text>
+  <text x="72" y="168" fill="#f7e7f4" font-family="Segoe UI, Arial, sans-serif" font-size="30">Mobile Base + Remote Master Arm</text>
+  <text x="72" y="458" fill="#f7e7f4" font-family="Segoe UI, Arial, sans-serif" font-size="24">Click to open MP4 on GitHub</text>
+</svg>

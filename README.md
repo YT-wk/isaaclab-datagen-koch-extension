@@ -100,21 +100,23 @@ cp configs/local.user.example.yaml configs/local.user.local.yaml
 
 ### 效果视频
 
+GitHub 仓库 README 不稳定支持内嵌 mp4 播放，以下使用缩略图链接到仓库内视频文件。
+
 #### Mode 1: Fixed Base + Keyboard Arm
 
-<video src="docs/media/videos/Mode1.mp4" controls autoplay muted loop playsinline width="960"></video>
+[![Mode 1](docs/media/thumbnails/mode1-fixed-keyboard.svg)](docs/media/videos/Mode1.mp4)
 
 #### Mode 2: Mobile Base + Keyboard Arm
 
-<video src="docs/media/videos/Mode2.mp4" controls autoplay muted loop playsinline width="960"></video>
+[![Mode 2](docs/media/thumbnails/mode2-mobile-keyboard.svg)](docs/media/videos/Mode2.mp4)
 
 #### Mode 3: Fixed Base + Remote Master Arm
 
-<video src="docs/media/videos/Mode3.mp4" controls autoplay muted loop playsinline width="960"></video>
+[![Mode 3](docs/media/thumbnails/mode3-fixed-remote.svg)](docs/media/videos/Mode3.mp4)
 
 #### Mode 4: Mobile Base + Remote Master Arm
 
-<video src="docs/media/videos/Mode4.mp4" controls autoplay muted loop playsinline width="960"></video>
+[![Mode 4](docs/media/thumbnails/mode4-mobile-remote.svg)](docs/media/videos/Mode4.mp4)
 
 录制脚本四种完整命令模板：
 
