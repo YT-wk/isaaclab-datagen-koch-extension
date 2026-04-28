@@ -93,14 +93,14 @@ cp configs/local.user.example.yaml configs/local.user.local.yaml
 
 | 模式 | 底盘 | 手臂控制源 | 内部 device name | 录制命令 | 效果视频 |
 | --- | --- | --- | --- | --- | --- |
-| Mode 1 | Fixed | Keyboard | `keyboard` | 见下方命令 1 | 见下方视频 |
-| Mode 2 | Mobile | Keyboard | `keyboard_mecanum` | 见下方命令 2 | 见下方视频 |
-| Mode 3 | Fixed | Remote Master Arm | `external_master_arm` | 见下方命令 3 | 见下方视频 |
-| Mode 4 | Mobile | Remote Master Arm | `external_master_arm_mecanum` | 见下方命令 4 | 见下方视频 |
+| Mode 1 | Fixed | Keyboard | `keyboard` | 见下方命令 1 | [也可见下方视频](docs/media/videos/Mode1.mp4) |
+| Mode 2 | Mobile | Keyboard | `keyboard_mecanum` | 见下方命令 2 | [也可见下方视频](docs/media/videos/Mode2.mp4) |
+| Mode 3 | Fixed | Remote Master Arm | `external_master_arm` | 见下方命令 3 | [也可见下方视频](docs/media/videos/Mode3.mp4) |
+| Mode 4 | Mobile | Remote Master Arm | `external_master_arm_mecanum` | 见下方命令 4 | [也可见下方视频](docs/media/videos/Mode4.mp4) |
 
 ### 效果视频
 
-GitHub 仓库 README 不稳定支持内嵌 mp4 播放，以下使用缩略图链接到仓库内视频文件。
+GitHub 仓库 README 不稳定支持内嵌 mp4 播放，可在[仓库内](docs/media/videos)下载视频文件或右键视频复制链接到新标签页打开。
 
 #### Mode 1: Fixed Base + Keyboard Arm
 
