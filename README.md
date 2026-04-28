@@ -34,7 +34,7 @@ pip install -e source/koch_mimic[local]
 - `configs/local.defaults.yaml`
 - `configs/local.user.example.yaml`
 
-你自己的私有配置文件：
+本地未提交的私有配置文件：
 
 - `configs/cloud.user.local.yaml`
 - `configs/local.user.local.yaml`
@@ -81,6 +81,84 @@ cp configs/local.user.example.yaml configs/local.user.local.yaml
 - 云端脚本只是薄入口，真实逻辑都在已安装包 `koch_mimic` 里。
 - 任务注册由 `koch_mimic.cloud.tasks.koch_pick_place` 包内完成。
 - 不再需要把任何环境代码复制到 `external/IsaacLab/source/isaaclab_mimic/...`。
+
+### 四种 Teleop 模式
+
+切换维度：
+
+- `--teleop_fixed_base` / `--no-teleop_fixed_base`
+- `--arm_teleop_source keyboard` / `--arm_teleop_source remote_master_arm`
+
+四种模式一览：
+
+| 模式 | 底盘 | 手臂控制源 | 内部 device name | 录制命令 | 效果视频 |
+| --- | --- | --- | --- | --- | --- |
+| Mode 1 | Fixed | Keyboard | `keyboard` | 见下方命令 1 | 见下方视频 |
+| Mode 2 | Mobile | Keyboard | `keyboard_mecanum` | 见下方命令 2 | 见下方视频 |
+| Mode 3 | Fixed | Remote Master Arm | `external_master_arm` | 见下方命令 3 | 见下方视频 |
+| Mode 4 | Mobile | Remote Master Arm | `external_master_arm_mecanum` | 见下方命令 4 | 见下方视频 |
+
+### 效果视频
+
+#### Mode 1: Fixed Base + Keyboard Arm
+
+<video src="docs/media/videos/Mode1.mp4" controls autoplay muted loop playsinline width="960"></video>
+
+#### Mode 2: Mobile Base + Keyboard Arm
+
+<video src="docs/media/videos/Mode2.mp4" controls autoplay muted loop playsinline width="960"></video>
+
+#### Mode 3: Fixed Base + Remote Master Arm
+
+<video src="docs/media/videos/Mode3.mp4" controls autoplay muted loop playsinline width="960"></video>
+
+#### Mode 4: Mobile Base + Remote Master Arm
+
+<video src="docs/media/videos/Mode4.mp4" controls autoplay muted loop playsinline width="960"></video>
+
+录制脚本四种完整命令模板：
+
+```bash
+# 1. Fixed base + keyboard arm
+./isaaclab.sh -p /abs/path/to/repo/scripts/cloud/record_koch_mimic_demos.py \
+  --config /abs/path/to/repo/configs/cloud.user.local.yaml \
+  --task Isaac-Koch-Mimic-PickPlace-v0 \
+  --teleop_fixed_base \
+  --arm_teleop_source keyboard
+```
+
+```bash
+# 2. Mobile base + keyboard arm
+./isaaclab.sh -p /abs/path/to/repo/scripts/cloud/record_koch_mimic_demos.py \
+  --config /abs/path/to/repo/configs/cloud.user.local.yaml \
+  --task Isaac-Koch-Mimic-PickPlace-v0 \
+  --no-teleop_fixed_base \
+  --arm_teleop_source keyboard
+```
+
+```bash
+# 3. Fixed base + remote master arm
+./isaaclab.sh -p /abs/path/to/repo/scripts/cloud/record_koch_mimic_demos.py \
+  --config /abs/path/to/repo/configs/cloud.user.local.yaml \
+  --task Isaac-Koch-Mimic-PickPlace-v0 \
+  --teleop_fixed_base \
+  --arm_teleop_source remote_master_arm
+```
+
+```bash
+# 4. Mobile base + remote master arm
+./isaaclab.sh -p /abs/path/to/repo/scripts/cloud/record_koch_mimic_demos.py \
+  --config /abs/path/to/repo/configs/cloud.user.local.yaml \
+  --task Isaac-Koch-Mimic-PickPlace-v0 \
+  --no-teleop_fixed_base \
+  --arm_teleop_source remote_master_arm
+```
+
+补充说明：
+
+- `remote_master_arm` 的两种模式需要先在本地机器启动 `scripts/local/stream_koch_leader_over_ssh.py`
+- `keyboard` 的两种模式不需要本地 leader arm 推流
+- 如需将 `num_demos`、`dataset_file`、`stream-port` 等参数固定下来，优先写进 `configs/cloud.user.local.yaml`
 
 ## Local
 

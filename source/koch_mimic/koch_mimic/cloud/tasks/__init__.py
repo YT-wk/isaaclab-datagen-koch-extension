@@ -1,6 +1,8 @@
-"""Cloud-side IsaacLab tasks."""
+"""Cloud-side IsaacLab tasks.
 
-from . import koch_pick_place  # noqa: F401
+Do not eagerly import task modules here. Some task configs depend on Isaac Sim
+modules that are only available after AppLauncher starts.
+"""
 
 __all__ = ["koch_pick_place"]
 

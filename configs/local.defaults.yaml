@@ -30,6 +30,7 @@ ssh:
 
 logging:
   local_jsonl_path: ./logs/koch_leader_stream.jsonl
+  cleanup_local_jsonl_on_exit: true
 
 discovery:
   port_globs:

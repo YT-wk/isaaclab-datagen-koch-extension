@@ -140,6 +140,17 @@ def ensure_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
+def remove_file_if_exists(path: Path | None) -> None:
+    """删除本地缓存文件；不存在时静默跳过。"""
+    if path is None:
+        return
+    try:
+        path.unlink(missing_ok=True)
+    except TypeError:
+        if path.exists():
+            path.unlink()
+
+
 def require_paramiko() -> Any:
     """延迟导入 paramiko。
 
@@ -638,6 +649,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     if not option_was_provided(argv_list, "--local-log"):
         args.local_log = str(get_config_section(config, "logging", "local_jsonl_path", default=args.local_log))
+    cleanup_local_log_on_exit = bool(
+        get_config_section(config, "logging", "cleanup_local_jsonl_on_exit", default=True)
+    )
 
     session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     password_env = str(get_config_section(config, "ssh", "password_env", default="KOCH_SSH_PASSWORD"))
@@ -739,8 +753,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         logger.close()
         streamer.close()
         reader.close()
+        if cleanup_local_log_on_exit:
+            remove_file_if_exists(local_log_path)
+            if local_log_path is not None:
+                print(f"Removed local JSONL cache: {local_log_path}")
 
-    if local_log_path is not None:
+    if local_log_path is not None and not cleanup_local_log_on_exit:
         print(f"Local JSONL log: {local_log_path}")
     return 0
 

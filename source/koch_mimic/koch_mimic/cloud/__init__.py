@@ -1,6 +1,9 @@
-"""Cloud-side IsaacLab task and teleoperation modules."""
+"""Cloud-side IsaacLab task and teleoperation modules.
 
-from . import tasks  # noqa: F401
+Keep this package import light-weight so wrapper scripts can import
+`koch_mimic.cloud.scripts.*` before Isaac Sim / AppLauncher has bootstrapped
+the Omniverse Python modules such as `pxr`.
+"""
 
-__all__ = ["tasks"]
+__all__ = ["tasks", "devices", "scripts"]
 
