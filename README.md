@@ -104,19 +104,19 @@ GitHub 仓库 README 不稳定支持内嵌 mp4 播放，以下使用缩略图链
 
 #### Mode 1: Fixed Base + Keyboard Arm
 
-[![Mode 1](docs/media/thumbnails/mode1-fixed-keyboard.svg)](docs/media/videos/Mode1.mp4)
+[![Mode 1](docs/media/thumbnails/mode1-fixed-keyboard.svg)](https://github.com/user-attachments/assets/79490d78-5274-4205-91a6-4af35ee0e04f)
 
 #### Mode 2: Mobile Base + Keyboard Arm
 
-[![Mode 2](docs/media/thumbnails/mode2-mobile-keyboard.svg)](docs/media/videos/Mode2.mp4)
+[![Mode 2](docs/media/thumbnails/mode2-mobile-keyboard.svg)](https://github.com/user-attachments/assets/735bbd1c-0710-4d0f-8b93-ab4ad5a14406)
 
 #### Mode 3: Fixed Base + Remote Master Arm
 
-[![Mode 3](docs/media/thumbnails/mode3-fixed-remote.svg)](docs/media/videos/Mode3.mp4)
+[![Mode 3](docs/media/thumbnails/mode3-fixed-remote.svg)](https://github.com/user-attachments/assets/b69c1bc0-4e4c-4093-bdd0-1148e4e4abaa)
 
 #### Mode 4: Mobile Base + Remote Master Arm
 
-[![Mode 4](docs/media/thumbnails/mode4-mobile-remote.svg)](docs/media/videos/Mode4.mp4)
+[![Mode 4](docs/media/thumbnails/mode4-mobile-remote.svg)](https://github.com/user-attachments/assets/a2497755-ddfa-422c-82af-fe3a9e748360)
 
 录制脚本四种完整命令模板：
 
