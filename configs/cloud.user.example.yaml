@@ -1,0 +1,21 @@
+# Copy this file to `configs/cloud.user.local.yaml` and edit the values below.
+assets:
+  world_usd_path: /abs/path/to/your/world.usd
+  robot_usd_path: /abs/path/to/your/koch_robot.usd
+  object_a_usd_path: /abs/path/to/object_a.usd
+  object_b_usd_path: /abs/path/to/object_b.usd
+
+dataset:
+  output_dir: /abs/path/to/datasets
+  filename: koch_mimic_demos.hdf5
+
+teleop:
+  stream:
+    port: 55000
+    joint_signs: [1.0, 1.0, 1.0, 1.0, -1.0]
+    joint_offsets: [0.139626, -0.785398, -1.570796, 1.396263, -1.570796]
+
+robot:
+  base_pos: [-0.94787, 0.24217, 0.06]
+  base_rot: [1.0, 0.0, 0.0, 0.0]
+

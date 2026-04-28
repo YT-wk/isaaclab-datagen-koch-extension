@@ -1,0 +1,17 @@
+# Copy this file to `configs/local.user.local.yaml` and edit the values below.
+leader_arm:
+  serial_port: COM5
+  baudrate: 1000000
+  sample_hz: 60.0
+
+ssh:
+  host: your.cloud.host
+  port: 31339
+  username: root
+  password_env: KOCH_SSH_PASSWORD
+  remote_stream_host: 127.0.0.1
+  remote_stream_port: 55000
+
+logging:
+  local_jsonl_path: ./logs/koch_leader_stream.jsonl
+

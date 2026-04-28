@@ -1,0 +1,162 @@
+task:
+  default_task_id: Isaac-Koch-Mimic-PickPlace-v0
+  legacy_task_id: Isaac-Koch-Pick-Place-IK-Rel-Mimic-v0
+
+scene:
+  stage_prim_path: /World/Stage
+  light_prim_path: /World/ExtraLight
+  light_color: [0.78, 0.78, 0.78]
+  light_intensity: 2200.0
+  num_envs: 128
+  env_spacing: 8.0
+  replicate_physics: false
+
+simulation:
+  decimation: 5
+  episode_length_s: 30.0
+  dt: 0.01
+  render_interval: 2
+  bounce_threshold_velocity: 0.01
+  gpu_found_lost_aggregate_pairs_capacity: 4194304
+  gpu_total_aggregate_pairs_capacity: 16384
+  friction_correlation_distance: 0.00625
+  num_rerenders_on_reset: 1
+  antialiasing_mode: DLAA
+
+assets:
+  world_usd_path: /media/robot/ef64217c-7820-452d-931f-2253a903882d/robot/Files/usd_files_new/gauss_with_ground0409v1.usd
+  world_scale: null
+  robot_usd_path: /media/robot/ef64217c-7820-452d-931f-2253a903882d/robot/Files/usd_files_new/orin_roal_wheel_robot_0325v1/roal_wheel_robot_0325v1.usd
+  robot_scale: [1.0, 1.0, 1.0]
+  object_a_usd_path: /media/robot/74E24312E242D7CE/isaacsim5_0_assets/isaacsim_assets/Assets/Isaac/5.1/Isaac/Environments/Office/Props/SM_BottleB.usd
+  object_b_usd_path: /media/robot/74E24312E242D7CE/isaacsim5_0_assets/isaacsim_assets/Assets/Isaac/5.1/Isaac/IsaacLab/Objects/Box/box.usd
+  object_a_scale: [0.5, 0.5, 0.5]
+  object_b_scale: [0.5, 0.5, 0.3]
+
+robot:
+  prim_path: "{ENV_REGEX_NS}/roal_wheel_robot_0325v1"
+  fix_root_link: true
+  base_pos: [-0.94787, 0.24217, 0.06]
+  base_rot: [1.0, 0.0, 0.0, 0.0]
+  arm_action_scale: 0.2
+  arm_ik_k_val: 1.0
+  wrist_action_scale: 1.0
+  arm_joint_names:
+    - arm_j1_v2_joint
+    - arm_j2_v2_joint
+    - arm_j3_v2_joint
+    - arm_j4_v2_joint
+    - arm_j5_v2_joint
+  ik_joint_names:
+    - arm_j1_v2_joint
+    - arm_j2_v2_joint
+    - arm_j3_v2_joint
+    - arm_j4_v2_joint
+  wrist_joint_names:
+    - arm_j5_v2_joint
+  gripper_joint_names:
+    - arm_j6_v2_joint
+  ee_body_name: motor6_fixer_v3_link
+  base_frame_prim_path: "{ENV_REGEX_NS}/roal_wheel_robot_0325v1/base_link"
+  ee_frame_prim_path: "{ENV_REGEX_NS}/roal_wheel_robot_0325v1/motor6_fixer_v3_link"
+  ee_offset: [0.0, 0.0, 0.0]
+  ee_offset_rot: [1.0, 0.0, 0.0, 0.0]
+  gripper_open_command_rad: -0.1745329252
+  gripper_close_command_rad: 1.3962634016
+  gripper_threshold: 0.005
+  reset_joint_targets_on_reset: true
+
+base:
+  wheel_joint_names:
+    - j1_joint
+    - j2_joint
+    - j3_joint
+    - j4_joint
+  wheel_radius_m: 0.05
+  wheel_half_length_m: 0.18
+  wheel_half_width_m: 0.16
+  wheel_velocity_signs: [1.0, -1.0, 1.0, 1.0]
+
+objects:
+  spawn_z: 0.0203
+  forward_yaw_offset_rad: 1.5707963268
+  init_distance_to_base_m: 0.305
+  init_ab_distance_m: 0.2
+  randomize_radius_range_m: [0.28, 0.33]
+  forward_angle_range_rad: [-0.6, 0.6]
+  randomize_yaw_range_rad: [-1.0, 1.0]
+  ab_distance_range_m: [0.15, 0.25]
+
+teleop:
+  fixed_base: true
+  arm_source: keyboard
+  pos_sensitivity: 0.05
+  wrist_sensitivity: 0.05
+  base_vx_sensitivity: 0.4
+  base_vy_sensitivity: 0.4
+  base_omega_sensitivity: 0.8
+  keys:
+    x_positive: D
+    x_negative: A
+    y_positive: W
+    y_negative: S
+    z_positive: Q
+    z_negative: E
+    wrist_positive: Z
+    wrist_negative: X
+    gripper_toggle: K
+    clear_buffer: L
+  stream:
+    host: 127.0.0.1
+    port: 55000
+    joint_signs: [1.0, 1.0, 1.0, 1.0, 1.0]
+    joint_offsets: [0.0, 0.0, 0.0, 0.0, 0.0]
+    zero_on_first_frame: true
+    stale_timeout: 1.0
+    gripper_close_delta: null
+    gripper_close_direction: positive
+
+cameras:
+  enabled: true
+  image_obs_list:
+    - cam_up
+    - cam_arm
+  cam_up:
+    pos: [0.0, 0.12595, 0.48127]
+    rot: [0.97346, 0.22888, 0.0, 0.0]
+    parent_prim_path: "{ENV_REGEX_NS}/roal_wheel_robot_0325v1/base_link"
+  cam_arm:
+    pos: [0.0, 0.04052, 0.03643]
+    rot: [0.9996128, -0.0278257, 0.0, 0.0]
+    parent_prim_path: "{ENV_REGEX_NS}/roal_wheel_robot_0325v1/motor5_fixer_v3_link"
+
+dataset:
+  output_dir: ./datasets
+  filename: koch_mimic_demos.hdf5
+
+demo:
+  step_hz: 30
+  num_demos: 0
+  num_success_steps: 10
+
+mimic:
+  datagen_name: koch_pick_place_mimic
+  generation_guarantee: true
+  generation_keep_failed: true
+  generation_num_trials: 200
+  generation_select_src_per_subtask: true
+  generation_transform_first_robot_pose: false
+  generation_interpolate_from_last_target_pose: true
+  generation_relative: true
+  max_num_failures: 50
+  seed: 1
+  action_noise: 0.02
+  interpolation_steps: 5
+  fixed_steps: 0
+  skillgen_name: koch_pick_place_skillgen
+  skillgen_num_trials: 100
+
+app:
+  enable_pinocchio: false
+  enable_cameras: true
+

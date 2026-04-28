@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "koch-mimic"
+version = "0.1.0"
+description = "Installable IsaacLab external project for Koch Mimic cloud and local tooling."
+readme = {text = "Koch Mimic installable package.", content-type = "text/plain"}
+requires-python = ">=3.10"
+dependencies = [
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+cloud = []
+local = [
+  "paramiko>=3.4",
+  "dynamixel-sdk>=3.7.31",
+  "pyserial>=3.5",
+]
+
+[project.scripts]
+record_koch_mimic_demos = "koch_mimic.cloud.scripts.record_koch_mimic_demos:main"
+run_koch_mimic_teleop = "koch_mimic.cloud.scripts.run_koch_mimic_teleop:main"
+stream_koch_leader_over_ssh = "koch_mimic.local.scripts.stream_koch_leader_over_ssh:main"
+debug_koch_leader_bus = "koch_mimic.local.scripts.debug_koch_leader_bus:main"
+test_koch_leader_serial = "koch_mimic.local.scripts.test_koch_leader_serial:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["koch_mimic", "koch_mimic.*"]

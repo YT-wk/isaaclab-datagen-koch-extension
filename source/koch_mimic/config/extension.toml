@@ -1,0 +1,12 @@
+[package]
+version = "0.1.0"
+title = "Koch Mimic"
+description = "Installable IsaacLab external project for Koch Mimic tasks and leader-arm tooling."
+category = "Simulation"
+authors = ["OpenAI Codex"]
+repository = ""
+keywords = ["isaaclab", "mimic", "koch", "teleop"]
+
+[python]
+module = "koch_mimic"
+

@@ -1,0 +1,42 @@
+leader_arm:
+  serial_port: auto
+  baudrate: 1000000
+  sample_hz: 60.0
+  max_samples: 0
+  status_interval: 0.5
+  reconnect_backoff: 1.0
+  motor_layout:
+    shoulder_pan: 1
+    shoulder_lift: 2
+    elbow_flex: 3
+    wrist_flex: 4
+    wrist_roll: 5
+    gripper: 6
+  probe_ids: [1, 2, 3, 4, 5, 6]
+  expected_model_number: 1190
+  read_timeout_ms: 300
+  auto_discover: true
+
+ssh:
+  host: 127.0.0.1
+  port: 22
+  username: root
+  password: null
+  password_env: KOCH_SSH_PASSWORD
+  connect_timeout: 5.0
+  keepalive_interval: 10.0
+  remote_stream_host: 127.0.0.1
+  remote_stream_port: 55000
+
+logging:
+  local_jsonl_path: ./logs/koch_leader_stream.jsonl
+
+discovery:
+  port_globs:
+    - /dev/ttyUSB*
+    - /dev/ttyACM*
+    - /dev/tty.usbserial*
+    - /dev/tty.usbmodem*
+    - /dev/cu.usbserial*
+    - /dev/cu.usbmodem*
+
