@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import copy
 from pathlib import Path
 from typing import Any, Mapping, MutableMapping
+from urllib.parse import urlparse
 
 import yaml
 
@@ -160,6 +161,9 @@ def get_active_runtime_config(profile: RuntimeProfile, *, require_user_local: bo
 def resolve_config_path(path_value: str | None, config: RuntimeConfig | None = None) -> str | None:
     """Resolve a config path relative to the repository root."""
     if path_value is None or path_value == "":
+        return path_value
+    parsed = urlparse(path_value)
+    if "://" in path_value and parsed.scheme:
         return path_value
     candidate = Path(path_value).expanduser()
     if candidate.is_absolute():

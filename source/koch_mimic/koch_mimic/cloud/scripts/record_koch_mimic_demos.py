@@ -239,11 +239,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         import omni.ui as ui
         import torch
 
+        from koch_mimic.cloud.recorders import KochActionStateRecorderManagerCfg
         from isaaclab.devices import Se3Keyboard, Se3KeyboardCfg
         from isaaclab.devices.openxr import remove_camera_configs
         from isaaclab.devices.teleop_device_factory import create_teleop_device
         from isaaclab.envs import DirectRLEnvCfg, ManagerBasedRLEnvCfg
-        from isaaclab.envs.mdp.recorders.recorders_cfg import ActionStateRecorderManagerCfg
         from isaaclab.envs.ui import EmptyWindow
         from isaaclab.managers import DatasetExportMode
 
@@ -283,7 +283,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             env_cfg.terminations.time_out = None
             env_cfg.observations.policy.concatenate_terms = False
 
-            env_cfg.recorders = ActionStateRecorderManagerCfg()
+            env_cfg.recorders = KochActionStateRecorderManagerCfg()
             env_cfg.recorders.dataset_export_dir_path = output_dir
             env_cfg.recorders.dataset_filename = output_file_name
             env_cfg.recorders.dataset_export_mode = DatasetExportMode.EXPORT_SUCCEEDED_ONLY

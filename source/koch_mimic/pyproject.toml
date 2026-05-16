@@ -22,6 +22,7 @@ local = [
 
 [project.scripts]
 record_koch_mimic_demos = "koch_mimic.cloud.scripts.record_koch_mimic_demos:main"
+replay_koch_mimic_demos = "koch_mimic.cloud.scripts.replay_koch_mimic_demos:main"
 run_koch_mimic_teleop = "koch_mimic.cloud.scripts.run_koch_mimic_teleop:main"
 stream_koch_leader_over_ssh = "koch_mimic.local.scripts.stream_koch_leader_over_ssh:main"
 debug_koch_leader_bus = "koch_mimic.local.scripts.debug_koch_leader_bus:main"

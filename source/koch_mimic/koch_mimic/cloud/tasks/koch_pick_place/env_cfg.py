@@ -42,6 +42,7 @@ from isaaclab.sensors import Camera, CameraCfg, FrameTransformer, RayCasterCamer
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import FrameTransformerCfg, OffsetCfg
 from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
+from isaaclab.sim.utils import bind_physics_material, clone, get_current_stage
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR,ISAAC_NUCLEUS_DIR
 
@@ -178,6 +179,99 @@ def spawn_usd_with_physics_fallback(
                 )
 
     return prim
+
+
+def _mesh_collision_cfg_from_name(name: str):
+    collision_cfg_map = {
+        "convexdecomposition": sim_utils.ConvexDecompositionPropertiesCfg,
+        "convexhull": sim_utils.ConvexHullPropertiesCfg,
+        "meshsimplification": sim_utils.TriangleMeshSimplificationPropertiesCfg,
+        "sdf": sim_utils.SDFMeshPropertiesCfg,
+        "boundingcube": sim_utils.BoundingCubePropertiesCfg,
+        "boundingsphere": sim_utils.BoundingSpherePropertiesCfg,
+    }
+    normalized = name.strip().lower()
+    if normalized == "none":
+        return None
+    cfg_class = collision_cfg_map.get(normalized)
+    if cfg_class is None:
+        valid = ", ".join(sorted(["none", *collision_cfg_map.keys()]))
+        raise ValueError(f"Unsupported mesh collision approximation: {name!r}. Expected one of: {valid}")
+    return cfg_class()
+
+
+@clone
+def spawn_usd_with_custom_physics(
+    prim_path: str,
+    cfg: UsdFileCfg,
+    translation: tuple[float, float, float] | None = None,
+    orientation: tuple[float, float, float, float] | None = None,
+    **kwargs,
+):
+    """Spawn USD and optionally bind a rigid-body material plus compliant contact overrides.
+
+    This extends the project-local fallback spawn helper with two practical behaviors used by custom grasp objects:
+
+    1. Allow a caller-chosen mesh collision approximation instead of always forcing a bounding cube.
+    2. Bind rigid-body material / compliant-contact material directly on the spawned object root so cloud-side
+       custom assets can be tuned from YAML without hand-editing the USD file.
+    """
+
+    prim = spawn_usd_with_physics_fallback(
+        prim_path=prim_path,
+        cfg=cfg,
+        translation=translation,
+        orientation=orientation,
+        **kwargs,
+    )
+
+    stage = get_current_stage()
+    material_cfg = getattr(cfg, "physics_material", None)
+    compliant_stiffness = getattr(cfg, "compliant_contact_stiffness", None)
+    compliant_damping = getattr(cfg, "compliant_contact_damping", None)
+
+    if material_cfg is not None:
+        if not hasattr(material_cfg, "func") or material_cfg.func is None:
+            raise ValueError("physics_material must be a valid RigidBodyMaterialCfg with a spawn function.")
+        if compliant_stiffness is not None:
+            material_cfg.compliant_contact_stiffness = compliant_stiffness
+        if compliant_damping is not None:
+            material_cfg.compliant_contact_damping = compliant_damping
+        material_path = f"{prim_path}/physicsMaterial"
+        material_cfg.func(material_path, material_cfg)
+        bind_physics_material(prim_path, material_path, stage=stage)
+
+    collision_cfg = getattr(cfg, "mesh_collision_props", None)
+    if collision_cfg is not None:
+        matched_paths = sim_utils.find_matching_prim_paths(prim_path)
+        for matched_path in matched_paths:
+            collider_mesh_prims = sim_utils.get_all_matching_child_prims(
+                matched_path,
+                predicate=lambda p: p.HasAPI(UsdPhysics.CollisionAPI) and p.IsA(UsdGeom.Mesh),
+                traverse_instance_prims=False,
+            )
+            for mesh_prim in collider_mesh_prims:
+                sim_utils.define_mesh_collision_properties(
+                    mesh_prim.GetPath().pathString,
+                    collision_cfg,
+                )
+
+    return prim
+
+
+@configclass
+class UsdFileWithCustomPhysicsCfg(UsdFileCfg):
+    """Project-local USD spawn config with extra rigid-body material controls.
+
+    Isaac Lab's stock ``UsdFileCfg`` supports rigid/mass/collision properties but not an explicit per-asset
+    rigid-body material field. This extension keeps the runtime behavior local to the project and avoids requiring
+    manual USD edits for custom scanned objects.
+    """
+
+    physics_material: object | None = None
+    mesh_collision_props: object | None = None
+    compliant_contact_stiffness: float | None = None
+    compliant_contact_damping: float | None = None
 
 
 def image(
@@ -628,6 +722,31 @@ class KochPickPlaceEnvCfg(ManagerBasedRLEnvCfg):
     # object_a_scale: tuple[float, float, float] = (0.0005, 0.0005, 0.0005)
     object_a_scale: tuple[float, float, float] = (0.5, 0.5, 0.5)
     object_b_scale: tuple[float, float, float] = (0.5, 0.5, 0.3)
+    # object_a can be tuned independently for custom scanned/converted grasp objects such as a textured banana USD.
+    object_a_mass_kg: float | None = None
+    object_a_density_kg_m3: float | None = None
+    object_a_static_friction: float = 1.2
+    object_a_dynamic_friction: float = 1.0
+    object_a_restitution: float = 0.02
+    object_a_friction_combine_mode: str = "multiply"
+    object_a_restitution_combine_mode: str = "min"
+    object_a_linear_damping: float = 1.5
+    object_a_angular_damping: float = 2.0
+    object_a_max_linear_velocity: float = 10.0
+    object_a_max_angular_velocity: float = 720.0
+    object_a_max_depenetration_velocity: float = 1.0
+    object_a_solver_position_iteration_count: int = 16
+    object_a_solver_velocity_iteration_count: int = 4
+    object_a_contact_offset: float = 0.003
+    object_a_rest_offset: float = 0.0
+    object_a_torsional_patch_radius: float = 0.01
+    object_a_min_torsional_patch_radius: float = 0.005
+    object_a_mesh_collision_approximation: str = "convexDecomposition"
+    object_a_compliant_contact_enabled: bool = False
+    object_a_compliant_contact_stiffness: float = 8.0e4
+    object_a_compliant_contact_damping: float = 2.5e3
+    object_b_kinematic_enabled: bool = True
+    object_b_mesh_collision_approximation: str = "meshSimplification"
 
     # # 替换为你自己的大场景世界资产路径。
     # world_usdz_path: str = "/root/gpufree-data/UsdFiles/mygauss.usd"
@@ -842,6 +961,186 @@ class KochPickPlaceEnvCfg(ManagerBasedRLEnvCfg):
         self.object_b_scale = as_tuple(
             get_config_section(runtime_config, "assets", "object_b_scale", default=list(self.object_b_scale))
         ) or self.object_b_scale
+        object_a_mass = get_config_section(runtime_config, "assets", "object_a_mass_kg", default=self.object_a_mass_kg)
+        self.object_a_mass_kg = None if object_a_mass is None else float(object_a_mass)
+        object_a_density = get_config_section(
+            runtime_config,
+            "assets",
+            "object_a_density_kg_m3",
+            default=self.object_a_density_kg_m3,
+        )
+        self.object_a_density_kg_m3 = None if object_a_density is None else float(object_a_density)
+        self.object_a_static_friction = float(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_static_friction",
+                default=self.object_a_static_friction,
+            )
+        )
+        self.object_a_dynamic_friction = float(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_dynamic_friction",
+                default=self.object_a_dynamic_friction,
+            )
+        )
+        self.object_a_restitution = float(
+            get_config_section(runtime_config, "assets", "object_a_restitution", default=self.object_a_restitution)
+        )
+        self.object_a_friction_combine_mode = str(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_friction_combine_mode",
+                default=self.object_a_friction_combine_mode,
+            )
+        )
+        self.object_a_restitution_combine_mode = str(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_restitution_combine_mode",
+                default=self.object_a_restitution_combine_mode,
+            )
+        )
+        self.object_a_linear_damping = float(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_linear_damping",
+                default=self.object_a_linear_damping,
+            )
+        )
+        self.object_a_angular_damping = float(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_angular_damping",
+                default=self.object_a_angular_damping,
+            )
+        )
+        self.object_a_max_linear_velocity = float(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_max_linear_velocity",
+                default=self.object_a_max_linear_velocity,
+            )
+        )
+        self.object_a_max_angular_velocity = float(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_max_angular_velocity",
+                default=self.object_a_max_angular_velocity,
+            )
+        )
+        self.object_a_max_depenetration_velocity = float(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_max_depenetration_velocity",
+                default=self.object_a_max_depenetration_velocity,
+            )
+        )
+        self.object_a_solver_position_iteration_count = int(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_solver_position_iteration_count",
+                default=self.object_a_solver_position_iteration_count,
+            )
+        )
+        self.object_a_solver_velocity_iteration_count = int(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_solver_velocity_iteration_count",
+                default=self.object_a_solver_velocity_iteration_count,
+            )
+        )
+        self.object_a_contact_offset = float(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_contact_offset",
+                default=self.object_a_contact_offset,
+            )
+        )
+        self.object_a_rest_offset = float(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_rest_offset",
+                default=self.object_a_rest_offset,
+            )
+        )
+        self.object_a_torsional_patch_radius = float(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_torsional_patch_radius",
+                default=self.object_a_torsional_patch_radius,
+            )
+        )
+        self.object_a_min_torsional_patch_radius = float(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_min_torsional_patch_radius",
+                default=self.object_a_min_torsional_patch_radius,
+            )
+        )
+        self.object_a_mesh_collision_approximation = str(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_mesh_collision_approximation",
+                default=self.object_a_mesh_collision_approximation,
+            )
+        )
+        self.object_a_compliant_contact_enabled = bool(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_compliant_contact_enabled",
+                default=self.object_a_compliant_contact_enabled,
+            )
+        )
+        self.object_a_compliant_contact_stiffness = float(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_compliant_contact_stiffness",
+                default=self.object_a_compliant_contact_stiffness,
+            )
+        )
+        self.object_a_compliant_contact_damping = float(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_a_compliant_contact_damping",
+                default=self.object_a_compliant_contact_damping,
+            )
+        )
+        self.object_b_kinematic_enabled = bool(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_b_kinematic_enabled",
+                default=self.object_b_kinematic_enabled,
+            )
+        )
+        self.object_b_mesh_collision_approximation = str(
+            get_config_section(
+                runtime_config,
+                "assets",
+                "object_b_mesh_collision_approximation",
+                default=self.object_b_mesh_collision_approximation,
+            )
+        )
 
         self.arm_action_scale = float(
             get_config_section(runtime_config, "robot", "arm_action_scale", default=self.arm_action_scale)
@@ -1346,28 +1645,89 @@ class KochPickPlaceEnvCfg(ManagerBasedRLEnvCfg):
             max_depenetration_velocity=5.0,
             disable_gravity=False,
         )
+        object_a_rigid_props = RigidBodyPropertiesCfg(
+            rigid_body_enabled=True,
+            kinematic_enabled=False,
+            disable_gravity=False,
+            linear_damping=self.object_a_linear_damping,
+            angular_damping=self.object_a_angular_damping,
+            max_linear_velocity=self.object_a_max_linear_velocity,
+            max_angular_velocity=self.object_a_max_angular_velocity,
+            max_depenetration_velocity=self.object_a_max_depenetration_velocity,
+            solver_position_iteration_count=self.object_a_solver_position_iteration_count,
+            solver_velocity_iteration_count=self.object_a_solver_velocity_iteration_count,
+        )
+        object_a_collision_props = sim_utils.CollisionPropertiesCfg(
+            collision_enabled=True,
+            contact_offset=self.object_a_contact_offset,
+            rest_offset=self.object_a_rest_offset,
+            torsional_patch_radius=self.object_a_torsional_patch_radius,
+            min_torsional_patch_radius=self.object_a_min_torsional_patch_radius,
+        )
+        object_a_mass_props = sim_utils.MassPropertiesCfg(
+            mass=self.object_a_mass_kg,
+            density=self.object_a_density_kg_m3,
+        )
+        object_a_physics_material = sim_utils.RigidBodyMaterialCfg(
+            static_friction=self.object_a_static_friction,
+            dynamic_friction=self.object_a_dynamic_friction,
+            restitution=self.object_a_restitution,
+            friction_combine_mode=self.object_a_friction_combine_mode,
+            restitution_combine_mode=self.object_a_restitution_combine_mode,
+            compliant_contact_stiffness=(
+                self.object_a_compliant_contact_stiffness if self.object_a_compliant_contact_enabled else 0.0
+            ),
+            compliant_contact_damping=(
+                self.object_a_compliant_contact_damping if self.object_a_compliant_contact_enabled else 0.0
+            ),
+        )
+        object_a_mesh_collision_props = _mesh_collision_cfg_from_name(self.object_a_mesh_collision_approximation)
         # 两个任务物体都复用同一个生成辅助函数，
         # 这样即便原始 USD 不带物理属性，也能在运行时补成可用的刚体。
         self.scene.cube_1 = RigidObjectCfg(
             prim_path="{ENV_REGEX_NS}/Object_A",
             init_state=RigidObjectCfg.InitialStateCfg(pos=obj_a_pos, rot=[1.0, 0.0, 0.0, 0.0]),
-            spawn=UsdFileCfg(
-                func=spawn_usd_with_physics_fallback,
+            spawn=UsdFileWithCustomPhysicsCfg(
+                func=spawn_usd_with_custom_physics,
                 usd_path=self.object_a_usd_path,
                 scale=self.object_a_scale,
-                rigid_props=rigid_props,
+                rigid_props=object_a_rigid_props,
+                collision_props=object_a_collision_props,
+                mass_props=object_a_mass_props,
+                physics_material=object_a_physics_material,
+                mesh_collision_props=object_a_mesh_collision_props,
+                compliant_contact_stiffness=(
+                    self.object_a_compliant_contact_stiffness if self.object_a_compliant_contact_enabled else None
+                ),
+                compliant_contact_damping=(
+                    self.object_a_compliant_contact_damping if self.object_a_compliant_contact_enabled else None
+                ),
                 articulation_props=sim_utils.ArticulationRootPropertiesCfg(articulation_enabled=False),
                 semantic_tags=[("class", "object_a")],
             ),
         )
+        object_b_rigid_props = RigidBodyPropertiesCfg(
+            rigid_body_enabled=True,
+            kinematic_enabled=self.object_b_kinematic_enabled,
+            disable_gravity=True,
+            solver_position_iteration_count=16,
+            solver_velocity_iteration_count=0,
+            max_angular_velocity=1000.0,
+            max_linear_velocity=1000.0,
+            max_depenetration_velocity=5.0,
+        )
+        object_b_collision_props = sim_utils.CollisionPropertiesCfg(collision_enabled=True)
+        object_b_mesh_collision_props = _mesh_collision_cfg_from_name(self.object_b_mesh_collision_approximation)
         self.scene.cube_2 = RigidObjectCfg(
             prim_path="{ENV_REGEX_NS}/Object_B",
             init_state=RigidObjectCfg.InitialStateCfg(pos=obj_b_pos, rot=[1.0, 0.0, 0.0, 0.0]),
-            spawn=UsdFileCfg(
-                func=spawn_usd_with_physics_fallback,
+            spawn=UsdFileWithCustomPhysicsCfg(
+                func=spawn_usd_with_custom_physics,
                 usd_path=self.object_b_usd_path,
                 scale=self.object_b_scale,
-                rigid_props=rigid_props,
+                rigid_props=object_b_rigid_props,
+                collision_props=object_b_collision_props,
+                mesh_collision_props=object_b_mesh_collision_props,
                 articulation_props=sim_utils.ArticulationRootPropertiesCfg(articulation_enabled=False),
                 semantic_tags=[("class", "object_b")],
             ),

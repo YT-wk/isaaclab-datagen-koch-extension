@@ -4,6 +4,19 @@ assets:
   robot_usd_path: /abs/path/to/your/koch_robot.usd
   object_a_usd_path: /abs/path/to/object_a.usd
   object_b_usd_path: /abs/path/to/object_b.usd
+  object_a_scale: [1.0, 1.0, 1.0]
+  object_a_mass_kg: 0.18
+  object_a_static_friction: 1.2
+  object_a_dynamic_friction: 1.0
+  object_a_restitution: 0.02
+  object_a_linear_damping: 1.5
+  object_a_angular_damping: 2.0
+  object_a_mesh_collision_approximation: convexDecomposition
+  object_a_compliant_contact_enabled: true
+  object_a_compliant_contact_stiffness: 80000.0
+  object_a_compliant_contact_damping: 2500.0
+  object_b_kinematic_enabled: true
+  object_b_mesh_collision_approximation: meshSimplification
 
 dataset:
   output_dir: /abs/path/to/datasets

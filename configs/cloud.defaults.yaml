@@ -32,6 +32,30 @@ assets:
   object_b_usd_path: /media/robot/74E24312E242D7CE/isaacsim5_0_assets/isaacsim_assets/Assets/Isaac/5.1/Isaac/IsaacLab/Objects/Box/box.usd
   object_a_scale: [0.5, 0.5, 0.5]
   object_b_scale: [0.5, 0.5, 0.3]
+  object_a_mass_kg: null
+  object_a_density_kg_m3: null
+  object_a_static_friction: 1.2
+  object_a_dynamic_friction: 1.0
+  object_a_restitution: 0.02
+  object_a_friction_combine_mode: multiply
+  object_a_restitution_combine_mode: min
+  object_a_linear_damping: 1.5
+  object_a_angular_damping: 2.0
+  object_a_max_linear_velocity: 10.0
+  object_a_max_angular_velocity: 720.0
+  object_a_max_depenetration_velocity: 1.0
+  object_a_solver_position_iteration_count: 16
+  object_a_solver_velocity_iteration_count: 4
+  object_a_contact_offset: 0.003
+  object_a_rest_offset: 0.0
+  object_a_torsional_patch_radius: 0.01
+  object_a_min_torsional_patch_radius: 0.005
+  object_a_mesh_collision_approximation: convexDecomposition
+  object_a_compliant_contact_enabled: false
+  object_a_compliant_contact_stiffness: 80000.0
+  object_a_compliant_contact_damping: 2500.0
+  object_b_kinematic_enabled: true
+  object_b_mesh_collision_approximation: meshSimplification
 
 robot:
   prim_path: "{ENV_REGEX_NS}/roal_wheel_robot_0325v1"
