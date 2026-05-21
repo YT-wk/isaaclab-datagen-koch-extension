@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 import getpass
 import glob
 import math
@@ -55,6 +56,11 @@ DEFAULT_STREAM_PORT = 55000
 # Leader 串口与 Dynamixel 侧的默认配置。
 DEFAULT_BAUDRATE = 1_000_000
 DEFAULT_SAMPLE_HZ = 60.0
+DEFAULT_READ_TIMEOUT_MS = 300
+DEFAULT_READ_RETRIES = 2
+DEFAULT_READ_RETRY_DELAY_SEC = 0.01
+DEFAULT_MAX_CONSECUTIVE_READ_FAILURES = 5
+DEFAULT_SERIAL_RECONNECT_BACKOFF = 1.0
 PRESENT_POSITION_ADDR = 132
 PRESENT_POSITION_LEN = 4
 EXPECTED_MODEL_NUMBER = 1190
@@ -188,6 +194,9 @@ class KochLeaderUSBReader:
         probe_ids: tuple[int, ...],
         expected_model_number: int,
         port_globs: tuple[str, ...],
+        read_timeout_ms: int,
+        read_num_retries: int,
+        read_retry_delay_sec: float,
     ):
         self.port = port
         self.baudrate = baudrate
@@ -195,10 +204,22 @@ class KochLeaderUSBReader:
         self.probe_ids = probe_ids
         self.expected_model_number = expected_model_number
         self.port_globs = port_globs
+        self.read_timeout_ms = max(1, int(read_timeout_ms))
+        self.read_num_retries = max(0, int(read_num_retries))
+        self.read_retry_delay_sec = max(0.0, float(read_retry_delay_sec))
         self.dxl = load_dynamixel_sdk()
         self.packet_handler = self.dxl.PacketHandler(2.0)
         self.port_handler = None
         self.sync_reader = None
+
+    def _apply_packet_timeout(self, port_handler: Any | None = None) -> None:
+        """Apply the configured packet timeout when the SDK port handler supports it."""
+        target = self.port_handler if port_handler is None else port_handler
+        if target is None:
+            return
+        set_timeout = getattr(target, "setPacketTimeoutMillis", None)
+        if callable(set_timeout):
+            set_timeout(self.read_timeout_ms)
 
     def connect(self) -> str:
         """打开串口，并把所有目标电机加入 GroupSyncRead。"""
@@ -212,6 +233,7 @@ class KochLeaderUSBReader:
         if not self.port_handler.setBaudRate(self.baudrate):
             self.port_handler.closePort()
             raise RuntimeError(f"Failed to set {selected_port} to baudrate {self.baudrate}")
+        self._apply_packet_timeout()
 
         self.sync_reader = self.dxl.GroupSyncRead(
             self.port_handler,
@@ -264,6 +286,7 @@ class KochLeaderUSBReader:
                 return 0
             if not port_handler.setBaudRate(self.baudrate):
                 return 0
+            self._apply_packet_timeout(port_handler)
 
             for motor_id in self.probe_ids:
                 try:
@@ -292,27 +315,41 @@ class KochLeaderUSBReader:
         if self.port_handler is None or self.sync_reader is None:
             raise RuntimeError("Robot is not connected yet. Call connect() first.")
 
-        comm_result = self.sync_reader.txRxPacket()
-        if comm_result != self.dxl.COMM_SUCCESS:
-            error_text = self.packet_handler.getTxRxResult(comm_result)
-            raise RuntimeError(f"Failed to sync read present positions: {error_text}")
+        attempts = self.read_num_retries + 1
+        last_error = "Unknown sync read failure"
 
-        result: dict[str, JointSample] = {}
-        for motor_name, motor_id in self.motor_layout:
-            is_available = self.sync_reader.isAvailable(motor_id, PRESENT_POSITION_ADDR, PRESENT_POSITION_LEN)
-            if not is_available:
-                raise RuntimeError(f"Present position is not available for motor id {motor_id} ({motor_name})")
+        for attempt_index in range(attempts):
+            comm_result = self.sync_reader.txRxPacket()
+            if comm_result != self.dxl.COMM_SUCCESS:
+                error_text = self.packet_handler.getTxRxResult(comm_result)
+                last_error = f"Failed to sync read present positions: {error_text}"
+            else:
+                result: dict[str, JointSample] = {}
+                missing_positions: list[str] = []
+                for motor_name, motor_id in self.motor_layout:
+                    is_available = self.sync_reader.isAvailable(motor_id, PRESENT_POSITION_ADDR, PRESENT_POSITION_LEN)
+                    if not is_available:
+                        missing_positions.append(f"{motor_name}(id={motor_id})")
+                        continue
 
-            raw_value = self.sync_reader.getData(motor_id, PRESENT_POSITION_ADDR, PRESENT_POSITION_LEN)
-            ticks = decode_signed_32bit(raw_value)
-            result[motor_name] = JointSample(
-                motor_id=motor_id,
-                ticks=ticks,
-                degrees=tick_to_degree(ticks),
-                radians=tick_to_radian(ticks),
-            )
+                    raw_value = self.sync_reader.getData(motor_id, PRESENT_POSITION_ADDR, PRESENT_POSITION_LEN)
+                    ticks = decode_signed_32bit(raw_value)
+                    result[motor_name] = JointSample(
+                        motor_id=motor_id,
+                        ticks=ticks,
+                        degrees=tick_to_degree(ticks),
+                        radians=tick_to_radian(ticks),
+                    )
 
-        return result
+                if not missing_positions:
+                    return result
+
+                last_error = "Present position is not available for: " + ", ".join(missing_positions)
+
+            if attempt_index + 1 < attempts and self.read_retry_delay_sec > 0:
+                time.sleep(self.read_retry_delay_sec)
+
+        raise RuntimeError(f"{last_error} after {attempts} attempt(s)")
 
     def close(self) -> None:
         """关闭同步读对象和串口。"""
@@ -541,6 +578,36 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="TCP port on the remote server that Isaac Sim listens on.",
     )
     parser.add_argument("--sample-hz", type=float, default=DEFAULT_SAMPLE_HZ, help="Sampling frequency in Hz.")
+    parser.add_argument(
+        "--read-timeout-ms",
+        type=int,
+        default=DEFAULT_READ_TIMEOUT_MS,
+        help="Per-packet serial read timeout in milliseconds.",
+    )
+    parser.add_argument(
+        "--read-retries",
+        type=int,
+        default=DEFAULT_READ_RETRIES,
+        help="Additional retry attempts for each serial sync read.",
+    )
+    parser.add_argument(
+        "--read-retry-delay",
+        type=float,
+        default=DEFAULT_READ_RETRY_DELAY_SEC,
+        help="Delay between serial sync read retries, in seconds.",
+    )
+    parser.add_argument(
+        "--max-consecutive-read-failures",
+        type=int,
+        default=DEFAULT_MAX_CONSECUTIVE_READ_FAILURES,
+        help="Reconnect the local serial bus after this many consecutive read failures.",
+    )
+    parser.add_argument(
+        "--serial-reconnect-backoff",
+        type=float,
+        default=DEFAULT_SERIAL_RECONNECT_BACKOFF,
+        help="Delay before retrying local serial reconnection, in seconds.",
+    )
     parser.add_argument("--connect-timeout", type=float, default=5.0, help="SSH and stream connect timeout in seconds.")
     parser.add_argument(
         "--keepalive-interval",
@@ -615,6 +682,36 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.baudrate = int(get_config_section(config, "leader_arm", "baudrate", default=args.baudrate))
     if not option_was_provided(argv_list, "--sample-hz"):
         args.sample_hz = float(get_config_section(config, "leader_arm", "sample_hz", default=args.sample_hz))
+    if not option_was_provided(argv_list, "--read-timeout-ms"):
+        args.read_timeout_ms = int(
+            get_config_section(config, "leader_arm", "read_timeout_ms", default=args.read_timeout_ms)
+        )
+    if not option_was_provided(argv_list, "--read-retries"):
+        args.read_retries = int(
+            get_config_section(config, "leader_arm", "read_retries", default=args.read_retries)
+        )
+    if not option_was_provided(argv_list, "--read-retry-delay"):
+        args.read_retry_delay = float(
+            get_config_section(config, "leader_arm", "read_retry_delay", default=args.read_retry_delay)
+        )
+    if not option_was_provided(argv_list, "--max-consecutive-read-failures"):
+        args.max_consecutive_read_failures = int(
+            get_config_section(
+                config,
+                "leader_arm",
+                "max_consecutive_read_failures",
+                default=args.max_consecutive_read_failures,
+            )
+        )
+    if not option_was_provided(argv_list, "--serial-reconnect-backoff"):
+        args.serial_reconnect_backoff = float(
+            get_config_section(
+                config,
+                "leader_arm",
+                "serial_reconnect_backoff",
+                default=args.serial_reconnect_backoff,
+            )
+        )
     if not option_was_provided(argv_list, "--max-samples"):
         args.max_samples = int(get_config_section(config, "leader_arm", "max_samples", default=args.max_samples))
     if not option_was_provided(argv_list, "--status-interval"):
@@ -666,6 +763,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         probe_ids=probe_ids,
         expected_model_number=expected_model_number,
         port_globs=port_globs,
+        read_timeout_ms=args.read_timeout_ms,
+        read_num_retries=args.read_retries,
+        read_retry_delay_sec=args.read_retry_delay,
     )
     streamer = SSHRealtimeJSONLStreamer(
         host=args.host,
@@ -693,11 +793,76 @@ def main(argv: Sequence[str] | None = None) -> int:
     reconnect_deadline = 0.0
     last_stream_error: str | None = None
     session_announcement_pending = True
+    consecutive_serial_failures = 0
+    last_serial_error: str | None = None
+    serial_reconnect_deadline = 0.0
+    serial_reconnect_announced = False
 
     try:
         while True:
             loop_started_at = time.monotonic()
-            joint_positions = reader.read_joint_positions()
+            if serial_reconnect_deadline > loop_started_at:
+                retry_in = serial_reconnect_deadline - loop_started_at
+                if not serial_reconnect_announced:
+                    print(
+                        "Waiting before retrying the local serial connection "
+                        f"({retry_in:.1f}s remaining)."
+                    )
+                    serial_reconnect_announced = True
+                if period_sec > 0:
+                    time.sleep(min(period_sec, retry_in))
+                else:
+                    time.sleep(min(0.1, retry_in))
+                continue
+
+            if serial_reconnect_announced:
+                print("Retrying local serial connection...")
+                serial_reconnect_announced = False
+                try:
+                    selected_port = reader.connect()
+                except Exception as exc:
+                    serial_reconnect_deadline = time.monotonic() + max(args.serial_reconnect_backoff, 0.1)
+                    print(
+                        "Local serial reconnect failed. "
+                        f"Retrying again in {max(args.serial_reconnect_backoff, 0.1):.1f}s: {exc}"
+                    )
+                    continue
+                print(f"Reconnected serial port: {selected_port} @ {args.baudrate}")
+
+            try:
+                joint_positions = reader.read_joint_positions()
+            except Exception as exc:
+                consecutive_serial_failures += 1
+                current_error = str(exc)
+                if current_error != last_serial_error or consecutive_serial_failures == 1:
+                    print(
+                        "Serial read failed "
+                        f"({consecutive_serial_failures}/{max(args.max_consecutive_read_failures, 1)}): {current_error}"
+                    )
+                last_serial_error = current_error
+
+                if consecutive_serial_failures >= max(args.max_consecutive_read_failures, 1):
+                    reader.close()
+                    serial_reconnect_deadline = time.monotonic() + max(args.serial_reconnect_backoff, 0.1)
+                    print(
+                        "Too many consecutive serial read failures. "
+                        f"Closing the port and scheduling a reconnect in {max(args.serial_reconnect_backoff, 0.1):.1f}s."
+                    )
+                else:
+                    serial_reconnect_deadline = 0.0
+
+                if period_sec > 0:
+                    elapsed = time.monotonic() - loop_started_at
+                    sleep_time = period_sec - elapsed
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
+                continue
+
+            if consecutive_serial_failures > 0:
+                print("Serial read recovered.")
+            consecutive_serial_failures = 0
+            last_serial_error = None
+            serial_reconnect_deadline = 0.0
             frame = build_frame(session_id, sequence, selected_port, args.baudrate, joint_positions, motor_layout)
             frame_line = jsonl_dumps(frame)
             logger.write(frame_line)

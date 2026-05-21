@@ -3,6 +3,11 @@ leader_arm:
   serial_port: COM5
   baudrate: 1000000
   sample_hz: 60.0
+  read_timeout_ms: 300
+  read_retries: 2
+  read_retry_delay: 0.01
+  max_consecutive_read_failures: 5
+  serial_reconnect_backoff: 1.0
 
 ssh:
   host: your.cloud.host
