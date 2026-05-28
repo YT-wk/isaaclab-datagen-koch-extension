@@ -5,8 +5,38 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import Callable
+from functools import wraps
+import inspect
 
 import torch
+
+
+def configure_generation_recorder(original_setup_env_config: Callable) -> Callable:
+    """Configure Isaac Lab Mimic generation to export Koch camera observations."""
+
+    @wraps(original_setup_env_config)
+    def setup_env_config(*args, **kwargs):
+        from koch_mimic.cloud.recorders import KochActionStateRecorderManagerCfg
+
+        recorder_cfg = KochActionStateRecorderManagerCfg()
+        supports_recorder_cfg = "recorder_cfg" in inspect.signature(original_setup_env_config).parameters
+        if supports_recorder_cfg:
+            kwargs.setdefault("recorder_cfg", recorder_cfg)
+
+        env_cfg, success_term = original_setup_env_config(*args, **kwargs)
+        if not supports_recorder_cfg:
+            previous_recorders = env_cfg.recorders
+            env_cfg.recorders = recorder_cfg
+            env_cfg.recorders.dataset_export_dir_path = previous_recorders.dataset_export_dir_path
+            env_cfg.recorders.dataset_filename = previous_recorders.dataset_filename
+            env_cfg.recorders.dataset_export_mode = previous_recorders.dataset_export_mode
+
+        if hasattr(env_cfg.observations, "rgb_camera"):
+            env_cfg.observations.rgb_camera.concatenate_terms = False
+
+        return env_cfg, success_term
+
+    return setup_env_config
 
 
 def wrap_generation_env_loop(original_env_loop: Callable) -> Callable:
@@ -79,4 +109,3 @@ def wrap_generation_env_loop(original_env_loop: Callable) -> Callable:
         env.close()
 
     return env_loop
-

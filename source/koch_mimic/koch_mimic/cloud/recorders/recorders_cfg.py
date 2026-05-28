@@ -18,6 +18,6 @@ class PreStepRGBCameraObservationsRecorderCfg(RecorderTermCfg):
 
 @configclass
 class KochActionStateRecorderManagerCfg(ActionStateRecorderManagerCfg):
-    """Isaac Lab action/state recorder extended with RGB camera observations."""
+    """Isaac Lab action/state recorder extended with camera observations."""
 
     record_pre_step_rgb_camera_observations = PreStepRGBCameraObservationsRecorderCfg()

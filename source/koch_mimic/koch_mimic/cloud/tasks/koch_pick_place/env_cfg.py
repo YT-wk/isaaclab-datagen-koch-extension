@@ -683,9 +683,17 @@ class ObservationsCfg:
             func=image,
             params={"sensor_cfg": SceneEntityCfg("cam_up"), "data_type": "rgb", "normalize": False},
         )
+        cam_up_depth = ObsTerm(
+            func=image,
+            params={"sensor_cfg": SceneEntityCfg("cam_up"), "data_type": "distance_to_image_plane", "normalize": False},
+        )
         cam_arm_rgb = ObsTerm(
             func=image,
             params={"sensor_cfg": SceneEntityCfg("cam_arm"), "data_type": "rgb", "normalize": False},
+        )
+        cam_arm_depth = ObsTerm(
+            func=image,
+            params={"sensor_cfg": SceneEntityCfg("cam_arm"), "data_type": "distance_to_image_plane", "normalize": False},
         )
 
         def __post_init__(self):

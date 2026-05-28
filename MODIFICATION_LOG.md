@@ -215,3 +215,53 @@
 - In cloud visualization, confirm the gripper pose is closer to the collected demonstration while the end effector still reaches the object accurately.
 - If XYZ accuracy visibly degrades, reduce `mimic.orientation_weight` or `mimic.orientation_max_step_rad`.
 - Confirm downstream replay/training uses the same 7D generation configuration.
+
+## 2026-05-28 - Mimic 生成数据加入视觉训练字段
+
+### 1. 修改了哪些文件
+
+- `source/koch_mimic/koch_mimic/cloud/scripts/_isaaclab_mimic_runner.py`
+- `source/koch_mimic/koch_mimic/cloud/scripts/mimic_generation_compat.py`
+- `source/koch_mimic/koch_mimic/cloud/recorders/recorders.py`
+- `source/koch_mimic/koch_mimic/cloud/recorders/recorders_cfg.py`
+- `source/koch_mimic/koch_mimic/cloud/tasks/koch_pick_place/env_cfg.py`
+- `README.md`
+- `MODIFICATION_LOG.md`
+
+### 2. 每个文件为什么改
+
+- `_isaaclab_mimic_runner.py`
+  在执行上游 IsaacLab Mimic 生成脚本前读取有效 cloud 配置，并在 `app.enable_cameras=true` 且 CLI 未显式传入 `--enable_cameras` 时自动补上该参数；同时把生成脚本的 `setup_env_config` 包装为项目本地版本。
+
+- `mimic_generation_compat.py`
+  新增 `configure_generation_recorder()`，让 Mimic generation 使用 `KochActionStateRecorderManagerCfg`，从而导出 `obs/rgb_camera/*` 视觉观测；保留原有失败上限 wrapper。
+
+- `recorders.py` / `recorders_cfg.py`
+  更新注释和说明，把 recorder 的用途从“只保存 teleop RGB”扩展为“保存 teleop 与 Mimic generation 的相机观测”。
+
+- `env_cfg.py`
+  在 `rgb_camera` 观测组中加入 `cam_up_depth` 和 `cam_arm_depth`，与相机 sensor 已启用的 `distance_to_image_plane` 数据类型对齐。生成数据现在应包含 RGB 和 depth 两类视觉训练字段。
+
+- `README.md`
+  说明生成 HDF5 会包含低维字段与视觉字段，并补充用本地分析脚本检查 `obs/rgb_camera/*` 的命令。
+
+- `MODIFICATION_LOG.md`
+  追加本次修改记录。
+
+### 3. 运行了哪些验证
+
+- `python -m py_compile source\koch_mimic\koch_mimic\cloud\scripts\_isaaclab_mimic_runner.py source\koch_mimic\koch_mimic\cloud\scripts\mimic_generation_compat.py source\koch_mimic\koch_mimic\cloud\recorders\recorders.py source\koch_mimic\koch_mimic\cloud\recorders\recorders_cfg.py source\koch_mimic\koch_mimic\cloud\tasks\koch_pick_place\env_cfg.py`：通过。
+- `D:\Env_IDE\anaconda3_202303\envs\pytorch\python.exe scripts\local\analyze_hdf5_dataset.py --dataset-dir D:\Codes\RoboticsProject\datasets\0527 --file koch_mimic_generated_0527v3.hdf5 -n 1 --tree --include-images --no-values`：通过，确认旧 v3 generated 文件没有 `obs/rgb_camera/*` 字段，只有低维 obs、states、actions 和 processed_actions。
+- `rg -n "configure_generation_recorder|KochActionStateRecorderManagerCfg|cam_up_depth|cam_arm_depth|enable_cameras|rgb_camera" ...`：通过，确认生成 wrapper、recorder 和 RGB/depth 观测配置均存在。
+
+### 4. 还有哪些没验证
+
+- 尚未在云端 IsaacLab / Isaac Sim 中重新运行 Mimic generation。
+- 尚未实际打开新生成的 HDF5 确认 `obs/rgb_camera/cam_up_rgb`、`obs/rgb_camera/cam_arm_rgb`、`obs/rgb_camera/cam_up_depth`、`obs/rgb_camera/cam_arm_depth` 已写入。
+- 尚未用包含视觉字段的新 generated HDF5 跑训练脚本或 replay/validate。
+
+### 5. 哪些地方需要我人工确认
+
+- 请在云端重新生成一个小批量文件，并用 README 中的 `--tree --include-images --no-values` 命令确认 `obs/rgb_camera/*` 字段存在。
+- 请确认训练代码期望的图像 key 名称是否接受 `obs/rgb_camera/cam_up_rgb` 这类嵌套路径；如果训练框架要求平铺 key，需要再加一个导出/转换脚本。
+- 请留意 HDF5 文件大小；RGB+depth 两个视角会明显增加磁盘占用，正式批量生成前建议先用 1-3 条轨迹估算容量。

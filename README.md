@@ -79,6 +79,13 @@ cp configs/local.user.example.yaml configs/local.user.local.yaml
 
 四种遥操作模式：
 
+四种设备遥操效果视频：
+
+- [Fixed base + keyboard arm](https://github.com/user-attachments/assets/79490d78-5274-4205-91a6-4af35ee0e04f)
+- [Mobile base + keyboard arm](https://github.com/user-attachments/assets/735bbd1c-0710-4d0f-8b93-ab4ad5a14406)
+- [Fixed base + remote master arm](https://github.com/user-attachments/assets/b69c1bc0-4e4c-4093-bdd0-1148e4e4abaa)
+- [Mobile base + remote master arm](https://github.com/user-attachments/assets/a2497755-ddfa-422c-82af-fe3a9e748360)
+
 ```bash
 # Fixed base + keyboard arm
 ~/isaaclab/_isaac_sim/python.sh /abs/path/to/repo/scripts/cloud/record_koch_mimic_demos.py \
@@ -155,6 +162,17 @@ cp configs/local.user.example.yaml configs/local.user.local.yaml
 生成失败样本会按 Mimic 配置写到类似 `<output>_failed.hdf5` 的文件中，便于用本地分析脚本排查。
 当前默认 `mimic.generation_control_mode=position_priority_pose_ik`，生成动作接口为 7D：`[dx, dy, dz, dRx, dRy, dRz, gripper]`。其中 `dRx/dRy/dRz` 是 axis-angle 姿态误差接口，不代表 Koch 具备完整 6D 末端自由度；本地 IK 会优先满足 XYZ 位置，再用剩余可动空间尽量贴近示教姿态。`mimic.wrist_target_bias_rad` 仅是旧的单 wrist 关节偏置，应保持 `0.0`，不要再用它处理夹爪整体前倾。
 
+生成入口会按有效配置自动读取 `app.enable_cameras`；该值为 `true` 时，即使命令里没有显式写 `--enable_cameras`，也会打开 IsaacLab 相机渲染。生成 HDF5 会保留低维训练字段和相机字段：
+
+- 低维字段：`actions`、`processed_actions`、`obs/joint_pos`、`obs/joint_vel`、`obs/eef_pos`、`obs/eef_quat`、`obs/gripper_pos`、`obs/object_a_pose`、`obs/object_b_pose`、`states/*`。
+- 视觉字段：`obs/rgb_camera/cam_up_rgb`、`obs/rgb_camera/cam_arm_rgb`、`obs/rgb_camera/cam_up_depth`、`obs/rgb_camera/cam_arm_depth`。
+
+视觉字段尺寸会显著增大数据集；如果只想调试成功率，可以临时把 `configs/cloud.user.local.yaml` 里的 `app.enable_cameras` 改为 `false` 后再运行生成。
+
+生成数据集的成功轨迹效果视频：
+
+- [Mimic generated successful trajectory](https://github.com/user-attachments/assets/d625aa62-d13c-4c68-8252-c770a3b37760)
+
 ## 本地运行
 
 本地脚本不依赖 IsaacLab，使用本地 Python 或 Conda 环境即可。
@@ -166,6 +184,18 @@ python D:\Codes\RoboticsProject\isaaclab-datagen-koch-extension\isaaclab-datagen
   --dataset-dir D:\Codes\RoboticsProject\datasets\0527 `
   -n 3 `
   --stats
+```
+
+查看数据集是否包含视觉训练字段：
+
+```powershell
+python D:\Codes\RoboticsProject\isaaclab-datagen-koch-extension\isaaclab-datagen-koch-extension\scripts\local\analyze_hdf5_dataset.py `
+  --dataset-dir D:\Codes\RoboticsProject\datasets\0527 `
+  --file koch_mimic_generated_0527v4.hdf5 `
+  -n 1 `
+  --tree `
+  --include-images `
+  --no-values
 ```
 
 Mimic 失败诊断会按 `cloud.defaults.yaml -> cloud.user.local.yaml -> --cloud-config` 的有效配置重算成功条件：

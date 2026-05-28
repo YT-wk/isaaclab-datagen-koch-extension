@@ -9,8 +9,8 @@ class PreStepRGBCameraObservationsRecorder(RecorderTerm):
     """Record the `rgb_camera` observation group before each action is applied.
 
     The base Isaac Lab action/state recorder only stores ``obs_buf["policy"]``. For this project we also
-    want the exact RGB frames seen during teleoperation so the HDF5 dataset can be used for both trajectory
-    replay and original camera-frame playback.
+    want camera frames from teleoperation and Mimic generation so the HDF5 dataset can be used for both
+    low-dimensional replay and visuomotor training.
     """
 
     def record_pre_step(self):

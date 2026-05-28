@@ -5,7 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
-from koch_mimic.shared.configuration import find_repo_root
+from koch_mimic.shared.configuration import (
+    find_repo_root,
+    get_config_section,
+    load_runtime_config,
+    option_was_provided,
+)
+from koch_mimic.shared.constants import CLOUD_PROFILE
 
 
 def _extract_config_arg(argv: list[str]) -> tuple[str | None, list[str]]:
@@ -45,6 +51,19 @@ def _find_isaaclab_mimic_script(script_name: str) -> Path:
     raise FileNotFoundError(f"Could not find Isaac Lab Mimic script {script_name!r}. Searched:\n{searched}")
 
 
+def _apply_prelaunch_app_config(argv: list[str], config_path: str | None) -> list[str]:
+    """Apply app-launcher YAML defaults before the upstream script parses CLI args."""
+    config = load_runtime_config(CLOUD_PROFILE, overlay_path=config_path, require_user_local=True)
+    patched_argv = list(argv)
+
+    if not option_was_provided(patched_argv, "--enable_cameras"):
+        enable_cameras = bool(get_config_section(config, "app", "enable_cameras", default=False))
+        if enable_cameras:
+            patched_argv.append("--enable_cameras")
+
+    return patched_argv
+
+
 def run_isaaclab_mimic_script(
     script_name: str,
     argv: list[str] | None = None,
@@ -55,6 +74,7 @@ def run_isaaclab_mimic_script(
     """Execute an Isaac Lab Mimic CLI script after injecting Koch task registration."""
     original_argv = list(sys.argv[1:] if argv is None else argv)
     config_path, forwarded_argv = _extract_config_arg(original_argv)
+    forwarded_argv = _apply_prelaunch_app_config(forwarded_argv, config_path)
     script_path = _find_isaaclab_mimic_script(script_name)
 
     source = script_path.read_text(encoding="utf-8")
@@ -91,8 +111,10 @@ def run_isaaclab_mimic_script(
         import_replacement = (
             f"{import_marker}\n"
             "from koch_mimic.cloud.scripts.mimic_generation_compat import (\n"
+            "    configure_generation_recorder as _koch_configure_generation_recorder,\n"
             "    wrap_generation_env_loop as _koch_wrap_generation_env_loop,\n"
             ")\n"
+            "setup_env_config = _koch_configure_generation_recorder(setup_env_config)\n"
             "env_loop = _koch_wrap_generation_env_loop(env_loop)\n"
         )
         if import_marker not in source:
