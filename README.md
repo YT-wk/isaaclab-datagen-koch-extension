@@ -1,45 +1,42 @@
 # Koch Mimic
 
-这个仓库现在按 `cloud / local / shared` 三层重构成了一个可安装的 IsaacLab 外部项目。
+Koch Mimic 是一个可安装的 IsaacLab 外部项目，用于 Koch 抓放任务、遥操作录制、Isaac Lab Mimic 标注与数据生成，以及本地 leader arm 串口/SSH 推流。
 
-- `source/koch_mimic/koch_mimic/cloud`
-  运行在云端 IsaacLab / Isaac Sim 环境里，负责任务注册、Mimic 环境、teleop 接收和录制脚本。
-- `source/koch_mimic/koch_mimic/local`
-  运行在本地 leader arm 电脑上，负责串口读取、Dynamixel 调试和 SSH 推流。
-- `source/koch_mimic/koch_mimic/shared`
-  放两端共用的 YAML 配置加载、joint JSONL 协议和常量。
+项目按三层组织：
 
-仓库不再要求放进 `IsaacLab/source` 内部，也不再依赖 `isaaclab_mimic.envs.my_custom_mimic_env...` 这类路径。
+- `source/koch_mimic/koch_mimic/cloud`：云端 IsaacLab / Isaac Sim 任务、Mimic 环境、录制、回放、标注和生成入口。
+- `source/koch_mimic/koch_mimic/local`：本地 leader arm 串口读取、Dynamixel 调试和 SSH 推流。
+- `source/koch_mimic/koch_mimic/shared`：两端共用的 YAML 配置加载、joint JSONL 协议和常量。
 
 ## 安装
 
 云端 IsaacLab 环境：
 
 ```bash
-pip install -e source/koch_mimic[cloud]
+cd /abs/path/to/isaaclab-datagen-koch-extension
+~/isaaclab/_isaac_sim/python.sh -m pip install -e source/koch_mimic[cloud]
 ```
 
 本地 leader arm 环境：
 
 ```bash
-pip install -e source/koch_mimic[local]
+cd D:\Codes\RoboticsProject\isaaclab-datagen-koch-extension\isaaclab-datagen-koch-extension
+python -m pip install -e source/koch_mimic[local]
 ```
 
 ## 配置
 
-仓库提交的配置文件：
+提交到仓库的模板配置：
 
 - `configs/cloud.defaults.yaml`
 - `configs/cloud.user.example.yaml`
 - `configs/local.defaults.yaml`
 - `configs/local.user.example.yaml`
 
-本地未提交的私有配置文件：
+本地私有配置：
 
 - `configs/cloud.user.local.yaml`
 - `configs/local.user.local.yaml`
-
-这两个 `*.user.local.yaml` 已经加入根目录 `.gitignore`，不会上传仓库。
 
 初始化方式：
 
@@ -48,81 +45,43 @@ cp configs/cloud.user.example.yaml configs/cloud.user.local.yaml
 cp configs/local.user.example.yaml configs/local.user.local.yaml
 ```
 
-运行时加载顺序：
+运行时配置优先级：
 
-1. `defaults`
-2. `user.local`
-3. `--config <yaml>` 额外覆盖
-4. 显式 CLI 参数覆盖
+1. `*.defaults.yaml`
+2. `*.user.local.yaml`
+3. `--config <yaml>` 指定的额外覆盖文件
+4. 显式 CLI 参数
 
-如果缺少 `user.local.yaml`，脚本会提示从 `user.example.yaml` 复制。
+也就是说，同一字段优先使用 user local；user local 没配置时才回退到 defaults。
 
-## Cloud
+当前 Koch 夹爪资产的语义是 `gripper_open_command_rad=1.3962634016`、`gripper_close_command_rad=-0.1745329252`。`success.require_gripper_open=true` 会要求物体进入容器后夹爪已经真正打开释放；如果放入容器后仍保持闭合，轨迹不会被判为成功。
 
-云端主任务 ID：
+## 云端运行
 
-- 主 ID: `Isaac-Koch-Mimic-PickPlace-v0`
-- 兼容别名: `Isaac-Koch-Pick-Place-IK-Rel-Mimic-v0`
-
-录制示教：
+云端如使用 IsaacLab 的 Python，统一使用：
 
 ```bash
-./isaaclab.sh -p /abs/path/to/repo/scripts/cloud/record_koch_mimic_demos.py --config /abs/path/to/repo/configs/cloud.user.local.yaml --task Isaac-Koch-Mimic-PickPlace-v0
+~/isaaclab/_isaac_sim/python.sh <script> [args...]
 ```
 
-运行 teleop：
+默认任务 ID：
+
+- `Isaac-Koch-Mimic-PickPlace-v0`
+- 兼容别名：`Isaac-Koch-Pick-Place-IK-Rel-Mimic-v0`
+
+### 录制示教
 
 ```bash
-./isaaclab.sh -p /abs/path/to/repo/scripts/cloud/run_koch_mimic_teleop.py --config /abs/path/to/repo/configs/cloud.user.local.yaml --task Isaac-Koch-Mimic-PickPlace-v0
+~/isaaclab/_isaac_sim/python.sh /abs/path/to/repo/scripts/cloud/record_koch_mimic_demos.py \
+  --config /abs/path/to/repo/configs/cloud.user.local.yaml \
+  --task Isaac-Koch-Mimic-PickPlace-v0
 ```
 
-说明：
-
-- 云端脚本只是薄入口，真实逻辑都在已安装包 `koch_mimic` 里。
-- 任务注册由 `koch_mimic.cloud.tasks.koch_pick_place` 包内完成。
-- 不再需要把任何环境代码复制到 `external/IsaacLab/source/isaaclab_mimic/...`。
-
-### 四种 Teleop 模式
-
-切换维度：
-
-- `--teleop_fixed_base` / `--no-teleop_fixed_base`
-- `--arm_teleop_source keyboard` / `--arm_teleop_source remote_master_arm`
-
-四种模式一览：
-
-| 模式 | 底盘 | 手臂控制源 | 内部 device name | 录制命令 | 效果视频 |
-| --- | --- | --- | --- | --- | --- |
-| Mode 1 | Fixed | Keyboard | `keyboard` | 见下方命令 1 | [也可见下方视频](docs/media/videos/Mode1.mp4) |
-| Mode 2 | Mobile | Keyboard | `keyboard_mecanum` | 见下方命令 2 | [也可见下方视频](docs/media/videos/Mode2.mp4) |
-| Mode 3 | Fixed | Remote Master Arm | `external_master_arm` | 见下方命令 3 | [也可见下方视频](docs/media/videos/Mode3.mp4) |
-| Mode 4 | Mobile | Remote Master Arm | `external_master_arm_mecanum` | 见下方命令 4 | [也可见下方视频](docs/media/videos/Mode4.mp4) |
-
-### 效果视频
-
-GitHub 仓库 README 不稳定支持内嵌 mp4 播放，可在[仓库内](docs/media/videos)下载视频文件或右键视频复制链接到新标签页打开。
-
-#### Mode 1: Fixed Base + Keyboard Arm
-
-[![Mode 1](docs/media/thumbnails/mode1-fixed-keyboard.svg)](https://github.com/user-attachments/assets/79490d78-5274-4205-91a6-4af35ee0e04f)
-
-#### Mode 2: Mobile Base + Keyboard Arm
-
-[![Mode 2](docs/media/thumbnails/mode2-mobile-keyboard.svg)](https://github.com/user-attachments/assets/735bbd1c-0710-4d0f-8b93-ab4ad5a14406)
-
-#### Mode 3: Fixed Base + Remote Master Arm
-
-[![Mode 3](docs/media/thumbnails/mode3-fixed-remote.svg)](https://github.com/user-attachments/assets/b69c1bc0-4e4c-4093-bdd0-1148e4e4abaa)
-
-#### Mode 4: Mobile Base + Remote Master Arm
-
-[![Mode 4](docs/media/thumbnails/mode4-mobile-remote.svg)](https://github.com/user-attachments/assets/a2497755-ddfa-422c-82af-fe3a9e748360)
-
-录制脚本四种完整命令模板：
+四种遥操作模式：
 
 ```bash
-# 1. Fixed base + keyboard arm
-./isaaclab.sh -p /abs/path/to/repo/scripts/cloud/record_koch_mimic_demos.py \
+# Fixed base + keyboard arm
+~/isaaclab/_isaac_sim/python.sh /abs/path/to/repo/scripts/cloud/record_koch_mimic_demos.py \
   --config /abs/path/to/repo/configs/cloud.user.local.yaml \
   --task Isaac-Koch-Mimic-PickPlace-v0 \
   --teleop_fixed_base \
@@ -130,8 +89,8 @@ GitHub 仓库 README 不稳定支持内嵌 mp4 播放，可在[仓库内](docs/m
 ```
 
 ```bash
-# 2. Mobile base + keyboard arm
-./isaaclab.sh -p /abs/path/to/repo/scripts/cloud/record_koch_mimic_demos.py \
+# Mobile base + keyboard arm
+~/isaaclab/_isaac_sim/python.sh /abs/path/to/repo/scripts/cloud/record_koch_mimic_demos.py \
   --config /abs/path/to/repo/configs/cloud.user.local.yaml \
   --task Isaac-Koch-Mimic-PickPlace-v0 \
   --no-teleop_fixed_base \
@@ -139,8 +98,8 @@ GitHub 仓库 README 不稳定支持内嵌 mp4 播放，可在[仓库内](docs/m
 ```
 
 ```bash
-# 3. Fixed base + remote master arm
-./isaaclab.sh -p /abs/path/to/repo/scripts/cloud/record_koch_mimic_demos.py \
+# Fixed base + remote master arm
+~/isaaclab/_isaac_sim/python.sh /abs/path/to/repo/scripts/cloud/record_koch_mimic_demos.py \
   --config /abs/path/to/repo/configs/cloud.user.local.yaml \
   --task Isaac-Koch-Mimic-PickPlace-v0 \
   --teleop_fixed_base \
@@ -148,57 +107,105 @@ GitHub 仓库 README 不稳定支持内嵌 mp4 播放，可在[仓库内](docs/m
 ```
 
 ```bash
-# 4. Mobile base + remote master arm
-./isaaclab.sh -p /abs/path/to/repo/scripts/cloud/record_koch_mimic_demos.py \
+# Mobile base + remote master arm
+~/isaaclab/_isaac_sim/python.sh /abs/path/to/repo/scripts/cloud/record_koch_mimic_demos.py \
   --config /abs/path/to/repo/configs/cloud.user.local.yaml \
   --task Isaac-Koch-Mimic-PickPlace-v0 \
   --no-teleop_fixed_base \
   --arm_teleop_source remote_master_arm
 ```
 
-补充说明：
-
-- `remote_master_arm` 的两种模式需要先在本地机器启动 `scripts/local/stream_koch_leader_over_ssh.py`
-- `keyboard` 的两种模式不需要本地 leader arm 推流
-- 如需将 `num_demos`、`dataset_file`、`stream-port` 等参数固定下来，优先写进 `configs/cloud.user.local.yaml`
-
-## Local
-
-本地入口都在 `scripts/local/`：
-
-- `scripts/local/stream_koch_leader_over_ssh.py`
-- `scripts/local/debug_koch_leader_bus.py`
-- `scripts/local/test_koch_leader_serial.py`
-
-本地 SSH 推流：
+### 只运行 Teleop
 
 ```bash
-python /abs/path/to/repo/scripts/local/stream_koch_leader_over_ssh.py --config /abs/path/to/repo/configs/local.user.local.yaml
+~/isaaclab/_isaac_sim/python.sh /abs/path/to/repo/scripts/cloud/run_koch_mimic_teleop.py \
+  --config /abs/path/to/repo/configs/cloud.user.local.yaml \
+  --task Isaac-Koch-Mimic-PickPlace-v0
 ```
 
-本地总线调试：
+### 回放示教或生成数据
 
 ```bash
-python /abs/path/to/repo/scripts/local/debug_koch_leader_bus.py --config /abs/path/to/repo/configs/local.user.local.yaml status
+~/isaaclab/_isaac_sim/python.sh /abs/path/to/repo/scripts/cloud/replay_koch_mimic_demos.py \
+  --config /abs/path/to/repo/configs/cloud.user.local.yaml \
+  --task Isaac-Koch-Mimic-PickPlace-v0 \
+  --dataset_file /root/gpufree-data/datasets/koch_mimic_demos_0526.hdf5
 ```
 
-本地串口监视：
+### Mimic 自动标注
 
 ```bash
-python /abs/path/to/repo/scripts/local/test_koch_leader_serial.py --config /abs/path/to/repo/configs/local.user.local.yaml
+~/isaaclab/_isaac_sim/python.sh /abs/path/to/repo/scripts/cloud/annotate_koch_mimic_demos.py \
+  --config /abs/path/to/repo/configs/cloud.user.local.yaml \
+  --task Isaac-Koch-Mimic-PickPlace-v0 \
+  --input_file /root/gpufree-data/datasets/koch_mimic_demos_0526.hdf5 \
+  --output_file /root/gpufree-data/datasets/koch_mimic_demos_0526_annotated.hdf5
 ```
 
-说明：
+### Mimic 数据生成
 
-- `scripts/LeaderArmData2JSONL` 这部分职责已经迁到 `koch_mimic.local`。
-- 本地脚本不依赖 IsaacLab，只需要本地串口、Dynamixel 和 SSH 相关依赖。
+```bash
+~/isaaclab/_isaac_sim/python.sh /abs/path/to/repo/scripts/cloud/generate_koch_mimic_dataset.py \
+  --config /abs/path/to/repo/configs/cloud.user.local.yaml \
+  --task Isaac-Koch-Mimic-PickPlace-v0 \
+  --input_file /root/gpufree-data/datasets/koch_mimic_demos_0526_annotated.hdf5 \
+  --output_file /root/gpufree-data/datasets/koch_mimic_generated.hdf5
+```
 
-## 任意位置运行
+生成失败样本会按 Mimic 配置写到类似 `<output>_failed.hdf5` 的文件中，便于用本地分析脚本排查。
+当前默认 `mimic.generation_control_mode=position_priority_pose_ik`，生成动作接口为 7D：`[dx, dy, dz, dRx, dRy, dRz, gripper]`。其中 `dRx/dRy/dRz` 是 axis-angle 姿态误差接口，不代表 Koch 具备完整 6D 末端自由度；本地 IK 会优先满足 XYZ 位置，再用剩余可动空间尽量贴近示教姿态。`mimic.wrist_target_bias_rad` 仅是旧的单 wrist 关节偏置，应保持 `0.0`，不要再用它处理夹爪整体前倾。
 
-验收目标是：
+## 本地运行
 
-- 仓库可以放在任何路径。
-- 只要环境已经 `pip install -e source/koch_mimic[...]`，就能从任意当前工作目录运行。
-- 入口脚本只依赖已安装包和 YAML 配置，不依赖当前 shell 位于仓库根目录。
+本地脚本不依赖 IsaacLab，使用本地 Python 或 Conda 环境即可。
 
-`external/IsaacLab` 现在只保留作参考/开发资源，不参与运行时路径解析。
+### HDF5 数据集分析
+
+```powershell
+python D:\Codes\RoboticsProject\isaaclab-datagen-koch-extension\isaaclab-datagen-koch-extension\scripts\local\analyze_hdf5_dataset.py `
+  --dataset-dir D:\Codes\RoboticsProject\datasets\0527 `
+  -n 3 `
+  --stats
+```
+
+Mimic 失败诊断会按 `cloud.defaults.yaml -> cloud.user.local.yaml -> --cloud-config` 的有效配置重算成功条件：
+
+```powershell
+python D:\Codes\RoboticsProject\isaaclab-datagen-koch-extension\isaaclab-datagen-koch-extension\scripts\local\analyze_hdf5_dataset.py `
+  --dataset-dir D:\Codes\RoboticsProject\datasets\0527 `
+  --mimic-diagnose `
+  -n 0 `
+  --no-values
+```
+
+诊断输出会包含 `grasp_obj_a` 的 near、closed、lifted、grasp frame 计数。若 Mimic 标注提示 `Did not detect completion for the subtask "grasp_obj_a"`，优先用该命令检查是末端距离、物体抬升、还是 gripper closed 判定没有满足。
+若旧数据在“关闭夹爪”后被判成功，优先检查诊断输出里的 `gripper_open_command_rad`、`gripper_close_command_rad` 和 `final_progress`；当前语义下 final gripper 需要接近 open command 才能通过最终释放判定。
+
+### leader arm SSH 推流
+
+```powershell
+python D:\Codes\RoboticsProject\isaaclab-datagen-koch-extension\isaaclab-datagen-koch-extension\scripts\local\stream_koch_leader_over_ssh.py `
+  --config D:\Codes\RoboticsProject\isaaclab-datagen-koch-extension\isaaclab-datagen-koch-extension\configs\local.user.local.yaml
+```
+
+### Dynamixel 总线调试
+
+```powershell
+python D:\Codes\RoboticsProject\isaaclab-datagen-koch-extension\isaaclab-datagen-koch-extension\scripts\local\debug_koch_leader_bus.py `
+  --config D:\Codes\RoboticsProject\isaaclab-datagen-koch-extension\isaaclab-datagen-koch-extension\configs\local.user.local.yaml `
+  status
+```
+
+### 串口监视
+
+```powershell
+python D:\Codes\RoboticsProject\isaaclab-datagen-koch-extension\isaaclab-datagen-koch-extension\scripts\local\test_koch_leader_serial.py `
+  --config D:\Codes\RoboticsProject\isaaclab-datagen-koch-extension\isaaclab-datagen-koch-extension\configs\local.user.local.yaml
+```
+
+## 说明
+
+- `remote_master_arm` 模式需要先在本地启动 `scripts/local/stream_koch_leader_over_ssh.py`。
+- `keyboard` 模式不需要本地 leader arm 推流。
+- `external/IsaacLab` 只作为参考和兼容资源；项目运行入口在 `scripts/` 和 `source/koch_mimic`。
+- 项目支持从任意工作目录运行，前提是已安装 `source/koch_mimic[...]` 并传入正确配置路径。

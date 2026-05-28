@@ -157,6 +157,31 @@ def remove_file_if_exists(path: Path | None) -> None:
             path.unlink()
 
 
+def resolve_ssh_password(args: argparse.Namespace, config) -> str:
+    """Resolve the SSH password from CLI, config, environment, or an interactive prompt."""
+    if args.password:
+        return str(args.password)
+
+    config_password = get_config_section(config, "ssh", "password", default=None)
+    if config_password:
+        return str(config_password)
+
+    password_env = str(get_config_section(config, "ssh", "password_env", default="KOCH_SSH_PASSWORD"))
+    env_password = os.getenv(password_env)
+    if env_password:
+        return env_password
+
+    if password_env and password_env != "KOCH_SSH_PASSWORD" and not password_env.isupper():
+        print(
+            "Using ssh.password_env as a literal password for backward compatibility. "
+            "Prefer moving the actual password to ssh.password; ssh.password_env is meant to be an environment "
+            "variable name."
+        )
+        return password_env
+
+    return getpass.getpass("SSH password: ")
+
+
 def require_paramiko() -> Any:
     """延迟导入 paramiko。
 
@@ -751,9 +776,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-    password_env = str(get_config_section(config, "ssh", "password_env", default="KOCH_SSH_PASSWORD"))
-    config_password = get_config_section(config, "ssh", "password", default=None)
-    password = args.password or config_password or os.getenv(password_env) or getpass.getpass("SSH password: ")
+    password = resolve_ssh_password(args, config)
     local_log_path = Path(resolve_config_path(args.local_log, config)).expanduser().resolve() if args.local_log else None
 
     reader = KochLeaderUSBReader(

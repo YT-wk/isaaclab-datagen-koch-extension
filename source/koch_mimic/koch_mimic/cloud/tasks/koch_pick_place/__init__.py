@@ -6,6 +6,7 @@ import gymnasium as gym
 
 from koch_mimic.shared.constants import DEFAULT_TASK_ID, LEGACY_TASK_ID
 
+from . import agents
 from .env_cfg import KochPickPlaceEnvCfg
 from .mimic_env import KochPickPlaceMimicEnv
 from .mimic_env_cfg import KochPickPlaceDataGenEnvCfg, KochPickPlaceSkillGenEnvCfg
@@ -17,7 +18,10 @@ def _register_task(task_id: str, env_cfg_entry_point: str) -> None:
     gym.register(
         id=task_id,
         entry_point=f"{__name__}.mimic_env:KochPickPlaceMimicEnv",
-        kwargs={"env_cfg_entry_point": env_cfg_entry_point},
+        kwargs={
+            "env_cfg_entry_point": env_cfg_entry_point,
+            "robomimic_bc_cfg_entry_point": f"{agents.__name__}:robomimic/bc_rnn_low_dim.json",
+        },
         disable_env_checker=True,
     )
 

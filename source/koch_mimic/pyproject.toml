@@ -23,6 +23,8 @@ local = [
 [project.scripts]
 record_koch_mimic_demos = "koch_mimic.cloud.scripts.record_koch_mimic_demos:main"
 replay_koch_mimic_demos = "koch_mimic.cloud.scripts.replay_koch_mimic_demos:main"
+annotate_koch_mimic_demos = "koch_mimic.cloud.scripts.annotate_koch_mimic_demos:main"
+generate_koch_mimic_dataset = "koch_mimic.cloud.scripts.generate_koch_mimic_dataset:main"
 run_koch_mimic_teleop = "koch_mimic.cloud.scripts.run_koch_mimic_teleop:main"
 stream_koch_leader_over_ssh = "koch_mimic.local.scripts.stream_koch_leader_over_ssh:main"
 debug_koch_leader_bus = "koch_mimic.local.scripts.debug_koch_leader_bus:main"
@@ -33,3 +35,6 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 include = ["koch_mimic", "koch_mimic.*"]
+
+[tool.setuptools.package-data]
+"koch_mimic.cloud.tasks.koch_pick_place.agents" = ["robomimic/*.json"]

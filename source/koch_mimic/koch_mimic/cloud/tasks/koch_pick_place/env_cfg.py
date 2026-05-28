@@ -51,7 +51,10 @@ from isaaclab_tasks.manager_based.manipulation.stack import mdp
 from koch_mimic.shared.configuration import as_tuple, get_active_runtime_config, get_config_section, resolve_config_path
 from koch_mimic.shared.constants import CLOUD_PROFILE
 
-from .latched_differential_ik_action import LatchedDifferentialInverseKinematicsActionCfg
+from .latched_differential_ik_action import (
+    LatchedDifferentialInverseKinematicsActionCfg,
+    PositionPriorityDifferentialInverseKinematicsActionCfg,
+)
 from .mecanum_position_only_keyboard_device import MecanumPositionOnlyIKKeyboardCfg
 from .position_only_keyboard_device import PositionOnlyIKKeyboardCfg
 
@@ -318,21 +321,28 @@ def koch_gripper_pos(
     return robot.data.joint_pos[:, gripper_joint_ids[0] : gripper_joint_ids[0] + 1]
 
 
-def _is_gripper_closed(env: ManagerBasedRLEnv, joint_pos: torch.Tensor) -> torch.Tensor:
-    """根据开合命令和阈值判断夹爪是否已闭合。"""
+def _gripper_close_progress(env: ManagerBasedRLEnv, joint_pos: torch.Tensor) -> torch.Tensor:
+    """Return normalized gripper progress where 0 means open and 1 means closed."""
     open_val = torch.tensor(env.cfg.koch_gripper_open_command, dtype=torch.float32, device=env.device)
     close_val = torch.tensor(env.cfg.koch_gripper_close_command, dtype=torch.float32, device=env.device)
-    threshold = env.cfg.koch_gripper_threshold
-    if close_val <= open_val:
-        return joint_pos <= (open_val - threshold)
-    return joint_pos >= (open_val + threshold)
+    travel = close_val - open_val
+    if torch.isclose(travel, torch.zeros_like(travel)):
+        raise ValueError("gripper open/close command values must be different.")
+    return torch.clamp((joint_pos - open_val) / travel, 0.0, 1.0)
+
+
+def _is_gripper_closed(env: ManagerBasedRLEnv, joint_pos: torch.Tensor) -> torch.Tensor:
+    """根据归一化开合进度判断夹爪是否已闭合。"""
+    progress = _gripper_close_progress(env, joint_pos)
+    threshold = float(getattr(env.cfg, "koch_gripper_closed_progress_threshold", 0.65))
+    return progress >= threshold
 
 
 def _is_gripper_open(env: ManagerBasedRLEnv, joint_pos: torch.Tensor) -> torch.Tensor:
-    """判断夹爪当前位置是否足够接近“张开”命令值。"""
-    open_val = torch.tensor(env.cfg.koch_gripper_open_command, dtype=torch.float32, device=env.device)
-    threshold = env.cfg.koch_gripper_threshold
-    return torch.isclose(joint_pos, open_val, atol=threshold, rtol=0.0)
+    """根据归一化开合进度判断夹爪是否已张开。"""
+    progress = _gripper_close_progress(env, joint_pos)
+    threshold = float(getattr(env.cfg, "koch_gripper_open_progress_threshold", 0.35))
+    return progress <= threshold
 
 
 def koch_object_grasped(
@@ -340,7 +350,10 @@ def koch_object_grasped(
     robot_cfg: SceneEntityCfg,
     ee_frame_cfg: SceneEntityCfg,
     object_cfg: SceneEntityCfg,
-    diff_threshold: float = 0.06,
+    diff_threshold: float = 0.12,
+    lift_height_threshold: float = 0.015,
+    require_gripper_closed: bool = True,
+    lifted_requires_gripper_closed: bool = False,
 ) -> torch.Tensor:
     """为单自由度夹爪机器人生成启发式抓取成功信号。"""
     robot = env.scene[robot_cfg.name]
@@ -350,11 +363,20 @@ def koch_object_grasped(
     object_pos = obj.data.root_pos_w
     end_effector_pos = ee_frame.data.target_pos_w[:, 0, :]
     pose_diff = torch.linalg.vector_norm(object_pos - end_effector_pos, dim=1)
+    lifted = object_pos[:, 2] > (env.scene.env_origins[:, 2] + env.cfg.object_spawn_z + lift_height_threshold)
+    grasp_candidate = torch.logical_or(pose_diff < diff_threshold, lifted)
 
     gripper_joint_ids, _ = robot.find_joints(env.cfg.koch_gripper_joint_names)
     gripper_joint_pos = robot.data.joint_pos[:, gripper_joint_ids[0]]
-    # 抓取成功的定义很直接：末端执行器足够靠近目标，并且夹爪处于闭合状态。
-    return torch.logical_and(pose_diff < diff_threshold, _is_gripper_closed(env, gripper_joint_pos))
+    # Near-object contact should still require a closed gripper, while lift is
+    # already strong evidence that the object was captured earlier in the episode.
+    if require_gripper_closed:
+        gripper_closed = _is_gripper_closed(env, gripper_joint_pos)
+        near_and_closed = torch.logical_and(pose_diff < diff_threshold, gripper_closed)
+        if lifted_requires_gripper_closed:
+            lifted = torch.logical_and(lifted, gripper_closed)
+        return torch.logical_or(near_and_closed, lifted)
+    return grasp_candidate
 
 
 def koch_object_stacked(
@@ -380,6 +402,43 @@ def koch_object_stacked(
     gripper_joint_pos = robot.data.joint_pos[:, gripper_joint_ids[0]]
     # 放置成功的判据包括三部分：XY 对齐、高度差接近期望值，以及夹爪已经松开。
     return torch.logical_and(stacked, _is_gripper_open(env, gripper_joint_pos))
+
+
+def koch_object_inside_container(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg,
+    object_cfg: SceneEntityCfg,
+    container_cfg: SceneEntityCfg,
+    xy_half_size: tuple[float, float] = (0.12, 0.12),
+    z_range: tuple[float, float] = (0.0, 0.20),
+    center_offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    require_gripper_open: bool = True,
+) -> torch.Tensor:
+    """Return true when object center is inside a configurable box region of the container."""
+    robot = env.scene[robot_cfg.name]
+    obj = env.scene[object_cfg.name]
+    container = env.scene[container_cfg.name]
+
+    object_pos_w = obj.data.root_pos_w
+    container_pos_w = container.data.root_pos_w
+    container_quat_w = container.data.root_quat_w
+    center_offset_t = torch.tensor(center_offset, dtype=torch.float32, device=env.device).unsqueeze(0)
+
+    rel_pos_w = object_pos_w - container_pos_w
+    rel_pos_container = math_utils.quat_apply_inverse(container_quat_w, rel_pos_w) - center_offset_t
+
+    xy_half_size_t = torch.tensor(xy_half_size, dtype=torch.float32, device=env.device).unsqueeze(0)
+    z_min, z_max = z_range
+    inside_xy = torch.all(torch.abs(rel_pos_container[:, :2]) <= xy_half_size_t, dim=1)
+    inside_z = torch.logical_and(rel_pos_container[:, 2] >= z_min, rel_pos_container[:, 2] <= z_max)
+    inside = torch.logical_and(inside_xy, inside_z)
+
+    if require_gripper_open:
+        gripper_joint_ids, _ = robot.find_joints(env.cfg.koch_gripper_joint_names)
+        gripper_joint_pos = robot.data.joint_pos[:, gripper_joint_ids[0]]
+        inside = torch.logical_and(inside, _is_gripper_open(env, gripper_joint_pos))
+
+    return inside
 
 
 def _yaw_from_quaternion(quat_wxyz: tuple[float, float, float, float]) -> float:
@@ -645,11 +704,11 @@ class ObservationsCfg:
             },
         )
         place_obj_a_on_b = ObsTerm(
-            func=koch_object_stacked,
+            func=koch_object_inside_container,
             params={
                 "robot_cfg": SceneEntityCfg("robot"),
-                "upper_object_cfg": SceneEntityCfg("cube_1"),
-                "lower_object_cfg": SceneEntityCfg("cube_2"),
+                "object_cfg": SceneEntityCfg("cube_1"),
+                "container_cfg": SceneEntityCfg("cube_2"),
             },
         )
 
@@ -677,11 +736,11 @@ class TerminationsCfg:
         params={"minimum_height": -0.05, "asset_cfg": SceneEntityCfg("cube_2")},
     )
     success = DoneTerm(
-        func=koch_object_stacked,
+        func=koch_object_inside_container,
         params={
             "robot_cfg": SceneEntityCfg("robot"),
-            "upper_object_cfg": SceneEntityCfg("cube_1"),
-            "lower_object_cfg": SceneEntityCfg("cube_2"),
+            "object_cfg": SceneEntityCfg("cube_1"),
+            "container_cfg": SceneEntityCfg("cube_2"),
         },
     )
 
@@ -859,18 +918,36 @@ class KochPickPlaceEnvCfg(ManagerBasedRLEnvCfg):
     object_forward_angle_range_rad: tuple[float, float] = (-0.6, 0.6)
     object_randomize_yaw_range: tuple[float, float] = (-1.0, 1.0)
     object_ab_distance_range_m: tuple[float, float] = (0.15, 0.25)
+    object_randomize_max_sample_tries: int = 200
+    object_drop_minimum_height: float = -0.05
+    grasp_success_distance_threshold: float = 0.12
+    grasp_success_lift_height_threshold: float = 0.015
+    grasp_success_require_gripper_closed: bool = True
+    grasp_success_lifted_requires_gripper_closed: bool = True
+    container_success_xy_half_size: tuple[float, float] = (0.12, 0.12)
+    container_success_z_range: tuple[float, float] = (0.0, 0.20)
+    container_success_center_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    container_success_require_gripper_open: bool = True
 
-    koch_gripper_open_command: float = math.radians(-10.0)
-    koch_gripper_close_command: float = math.radians(80.0)
+    koch_gripper_open_command: float = math.radians(80.0)
+    koch_gripper_close_command: float = math.radians(-10.0)
     koch_gripper_threshold: float = 0.005
+    koch_gripper_open_progress_threshold: float = 0.35
+    koch_gripper_closed_progress_threshold: float = 0.65
     external_master_arm_gripper_close_delta: float | None = None
-    external_master_arm_gripper_close_direction: str = "positive"
+    external_master_arm_gripper_close_direction: str = "negative"
     external_master_arm_stream_host: str = "127.0.0.1"
     external_master_arm_stream_port: int = 55000
     external_master_arm_joint_signs: tuple[float, ...] = (1.0, 1.0, 1.0, 1.0, 1.0)
     external_master_arm_joint_offsets: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0, 0.0)
     external_master_arm_zero_on_first_frame: bool = True
     external_master_arm_stale_timeout: float = 1.0
+    mimic_wrist_target_bias_rad: float = 0.0
+    mimic_generation_control_mode: str = "position_only"
+    mimic_pose_ik_joint_names: tuple[str, ...] = ()
+    mimic_orientation_weight: float = 0.25
+    mimic_orientation_max_step_rad: float = 0.15
+    mimic_ik_damping: float = 0.01
 
     # 当前键盘映射默认值。直接改这些字段即可调整按键，不需要再去改设备源码。
     teleop_pos_sensitivity: float = 0.05
@@ -1194,6 +1271,22 @@ class KochPickPlaceEnvCfg(ManagerBasedRLEnvCfg):
         self.koch_gripper_threshold = float(
             get_config_section(runtime_config, "robot", "gripper_threshold", default=self.koch_gripper_threshold)
         )
+        self.koch_gripper_open_progress_threshold = float(
+            get_config_section(
+                runtime_config,
+                "robot",
+                "gripper_open_progress_threshold",
+                default=self.koch_gripper_open_progress_threshold,
+            )
+        )
+        self.koch_gripper_closed_progress_threshold = float(
+            get_config_section(
+                runtime_config,
+                "robot",
+                "gripper_closed_progress_threshold",
+                default=self.koch_gripper_closed_progress_threshold,
+            )
+        )
         self.reset_joint_targets_on_reset = bool(
             get_config_section(
                 runtime_config,
@@ -1271,6 +1364,128 @@ class KochPickPlaceEnvCfg(ManagerBasedRLEnvCfg):
                 default=list(self.object_ab_distance_range_m),
             )
         ) or self.object_ab_distance_range_m
+        self.object_randomize_max_sample_tries = int(
+            get_config_section(
+                runtime_config,
+                "objects",
+                "randomize_max_sample_tries",
+                default=self.object_randomize_max_sample_tries,
+            )
+        )
+        self.object_drop_minimum_height = float(
+            get_config_section(
+                runtime_config,
+                "objects",
+                "drop_minimum_height",
+                default=self.object_drop_minimum_height,
+            )
+        )
+        self.grasp_success_distance_threshold = float(
+            get_config_section(
+                runtime_config,
+                "success",
+                "grasp_distance_threshold_m",
+                default=self.grasp_success_distance_threshold,
+            )
+        )
+        self.grasp_success_lift_height_threshold = float(
+            get_config_section(
+                runtime_config,
+                "success",
+                "grasp_lift_height_threshold_m",
+                default=self.grasp_success_lift_height_threshold,
+            )
+        )
+        self.grasp_success_require_gripper_closed = bool(
+            get_config_section(
+                runtime_config,
+                "success",
+                "grasp_require_gripper_closed",
+                default=self.grasp_success_require_gripper_closed,
+            )
+        )
+        self.grasp_success_lifted_requires_gripper_closed = bool(
+            get_config_section(
+                runtime_config,
+                "success",
+                "grasp_lifted_requires_gripper_closed",
+                default=self.grasp_success_lifted_requires_gripper_closed,
+            )
+        )
+        self.container_success_xy_half_size = as_tuple(
+            get_config_section(
+                runtime_config,
+                "success",
+                "container_xy_half_size_m",
+                default=list(self.container_success_xy_half_size),
+            )
+        ) or self.container_success_xy_half_size
+        self.container_success_z_range = as_tuple(
+            get_config_section(
+                runtime_config,
+                "success",
+                "container_z_range_m",
+                default=list(self.container_success_z_range),
+            )
+        ) or self.container_success_z_range
+        self.container_success_center_offset = as_tuple(
+            get_config_section(
+                runtime_config,
+                "success",
+                "container_center_offset_m",
+                default=list(self.container_success_center_offset),
+            )
+        ) or self.container_success_center_offset
+        self.container_success_require_gripper_open = bool(
+            get_config_section(
+                runtime_config,
+                "success",
+                "require_gripper_open",
+                default=self.container_success_require_gripper_open,
+            )
+        )
+        self.mimic_wrist_target_bias_rad = float(
+            get_config_section(
+                runtime_config,
+                "mimic",
+                "wrist_target_bias_rad",
+                default=self.mimic_wrist_target_bias_rad,
+            )
+        )
+        self.mimic_generation_control_mode = str(
+            get_config_section(
+                runtime_config,
+                "mimic",
+                "generation_control_mode",
+                default=self.mimic_generation_control_mode,
+            )
+        )
+        pose_ik_joint_names = get_config_section(runtime_config, "mimic", "pose_ik_joint_names", default=None)
+        self.mimic_pose_ik_joint_names = as_tuple(pose_ik_joint_names) if pose_ik_joint_names is not None else ()
+        self.mimic_orientation_weight = float(
+            get_config_section(
+                runtime_config,
+                "mimic",
+                "orientation_weight",
+                default=self.mimic_orientation_weight,
+            )
+        )
+        self.mimic_orientation_max_step_rad = float(
+            get_config_section(
+                runtime_config,
+                "mimic",
+                "orientation_max_step_rad",
+                default=self.mimic_orientation_max_step_rad,
+            )
+        )
+        self.mimic_ik_damping = float(
+            get_config_section(
+                runtime_config,
+                "mimic",
+                "ik_damping",
+                default=self.mimic_ik_damping,
+            )
+        )
 
         self.teleop_pos_sensitivity = float(
             get_config_section(runtime_config, "teleop", "pos_sensitivity", default=self.teleop_pos_sensitivity)
@@ -1579,6 +1794,28 @@ class KochPickPlaceEnvCfg(ManagerBasedRLEnvCfg):
         self.gripper_open_val = self.koch_gripper_open_command
         self.gripper_threshold = self.koch_gripper_threshold
 
+        container_success_params = {
+            "robot_cfg": SceneEntityCfg("robot"),
+            "object_cfg": SceneEntityCfg("cube_1"),
+            "container_cfg": SceneEntityCfg("cube_2"),
+            "xy_half_size": self.container_success_xy_half_size,
+            "z_range": self.container_success_z_range,
+            "center_offset": self.container_success_center_offset,
+            "require_gripper_open": self.container_success_require_gripper_open,
+        }
+        self.observations.subtask_terms.grasp_obj_a.params.update(
+            {
+                "diff_threshold": self.grasp_success_distance_threshold,
+                "lift_height_threshold": self.grasp_success_lift_height_threshold,
+                "require_gripper_closed": self.grasp_success_require_gripper_closed,
+                "lifted_requires_gripper_closed": self.grasp_success_lifted_requires_gripper_closed,
+            }
+        )
+        self.observations.subtask_terms.place_obj_a_on_b.params = container_success_params
+        self.terminations.success.params = container_success_params
+        self.terminations.object_a_dropping.params["minimum_height"] = self.object_drop_minimum_height
+        self.terminations.object_b_dropping.params["minimum_height"] = self.object_drop_minimum_height
+
         # 默认打开 position-only 键盘遥操作路径。
         # 这样输出维度会与当前的 position-only IK 动作项保持一致：XYZ + gripper。
         self.teleop_devices = DevicesCfg(
@@ -1743,6 +1980,7 @@ class KochPickPlaceEnvCfg(ManagerBasedRLEnvCfg):
         self.events.randomize_object_ab_positions.params["forward_angle_range"] = self.object_forward_angle_range_rad
         self.events.randomize_object_ab_positions.params["yaw_range"] = self.object_randomize_yaw_range
         self.events.randomize_object_ab_positions.params["pair_distance_range"] = self.object_ab_distance_range_m
+        self.events.randomize_object_ab_positions.params["max_sample_tries"] = self.object_randomize_max_sample_tries
 
         # 配置两个固定外部视角相机，供 Mimic 或视觉策略读取。
         self.scene.cam_up = CameraCfg(

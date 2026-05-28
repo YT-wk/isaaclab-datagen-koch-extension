@@ -25,7 +25,9 @@ ssh:
   host: 127.0.0.1
   port: 22
   username: root
+  # Optional direct SSH password. Keep null when using password_env.
   password: null
+  # Environment variable name that contains the SSH password, not the password itself.
   password_env: KOCH_SSH_PASSWORD
   connect_timeout: 5.0
   keepalive_interval: 10.0

@@ -13,6 +13,10 @@ ssh:
   host: your.cloud.host
   port: 31339
   username: root
+  # Option 1: write the password here for a local-only config file.
+  password: null
+  # Option 2: keep password null and put the password in this environment variable.
+  # This field is the variable name, not the actual password.
   password_env: KOCH_SSH_PASSWORD
   remote_stream_host: 127.0.0.1
   remote_stream_port: 55000

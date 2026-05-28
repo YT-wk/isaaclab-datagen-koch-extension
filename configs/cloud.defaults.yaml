@@ -30,7 +30,7 @@ assets:
   robot_scale: [1.0, 1.0, 1.0]
   object_a_usd_path: /media/robot/74E24312E242D7CE/isaacsim5_0_assets/isaacsim_assets/Assets/Isaac/5.1/Isaac/Environments/Office/Props/SM_BottleB.usd
   object_b_usd_path: /media/robot/74E24312E242D7CE/isaacsim5_0_assets/isaacsim_assets/Assets/Isaac/5.1/Isaac/IsaacLab/Objects/Box/box.usd
-  object_a_scale: [0.5, 0.5, 0.5]
+  object_a_scale: [0.5, 0.5, 0.7]
   object_b_scale: [0.5, 0.5, 0.3]
   object_a_mass_kg: null
   object_a_density_kg_m3: null
@@ -85,9 +85,15 @@ robot:
   ee_frame_prim_path: "{ENV_REGEX_NS}/roal_wheel_robot_0325v1/motor6_fixer_v3_link"
   ee_offset: [0.0, 0.0, 0.0]
   ee_offset_rot: [1.0, 0.0, 0.0, 0.0]
-  gripper_open_command_rad: -0.1745329252
-  gripper_close_command_rad: 1.3962634016
+  # Current Koch gripper asset uses the larger joint target as physically open.
+  gripper_open_command_rad: 1.3962634016
+  gripper_close_command_rad: -0.1745329252
   gripper_threshold: 0.005
+  # Normalized gripper progress thresholds used by success/subtask logic.
+  # 0.0 means exactly open_command, 1.0 means exactly close_command.
+  # The wider default band is intentional for remote master-arm absolute position control.
+  gripper_open_progress_threshold: 0.35
+  gripper_closed_progress_threshold: 0.65
   reset_joint_targets_on_reset: true
 
 base:
@@ -102,6 +108,9 @@ base:
   wheel_velocity_signs: [1.0, -1.0, 1.0, 1.0]
 
 objects:
+  # Object A/B reset placement.
+  # Positions are sampled in a forward fan-shaped work region relative to the robot base.
+  # Units are meters/radians. object_a is the grasped item; object_b is the target container.
   spawn_z: 0.0203
   forward_yaw_offset_rad: 1.5707963268
   init_distance_to_base_m: 0.305
@@ -110,6 +119,26 @@ objects:
   forward_angle_range_rad: [-0.6, 0.6]
   randomize_yaw_range_rad: [-1.0, 1.0]
   ab_distance_range_m: [0.15, 0.25]
+  randomize_max_sample_tries: 200
+  drop_minimum_height: -0.05
+
+success:
+  # Grasp subtask signal used by Isaac Lab Mimic auto annotation.
+  # It becomes true when the gripper is closed and object_a is either close to the end effector or lifted.
+  # Increase grasp_distance_threshold_m for long/offset objects such as bottles or bananas.
+  grasp_distance_threshold_m: 0.12
+  grasp_lift_height_threshold_m: 0.015
+  grasp_require_gripper_closed: true
+  # true requires a lifted object to still be held by a closed gripper.
+  grasp_lifted_requires_gripper_closed: true
+  # Success is now checked by whether object_a's center is inside this local box region of object_b.
+  # XY range is [-x_half, x_half], [-y_half, y_half] in object_b's local frame.
+  # Z range is also in object_b's local frame after subtracting container_center_offset_m.
+  # Increase xy_half_size or z_range if the real container opening is larger than the default box asset.
+  container_xy_half_size_m: [0.03, 0.03]
+  container_z_range_m: [0.0, 0.03]
+  container_center_offset_m: [0.0, 0.0, 0.0]
+  require_gripper_open: true
 
 teleop:
   fixed_base: true
@@ -138,7 +167,9 @@ teleop:
     zero_on_first_frame: true
     stale_timeout: 1.0
     gripper_close_delta: null
-    gripper_close_direction: positive
+    # For the current Koch leader gripper, squeezing the physical gripper reduces the streamed angle.
+    # If closing the physical leader opens the simulated gripper, flip this between negative and positive.
+    gripper_close_direction: negative
 
 cameras:
   enabled: true
@@ -165,20 +196,37 @@ demo:
 
 mimic:
   datagen_name: koch_pick_place_mimic
+  # true: keep trying until generation_num_trials successful demos are exported.
+  # false: stop after generation_num_trials attempts, useful while debugging low success rates.
   generation_guarantee: true
+  # true writes failed rollouts to <output>_failed.hdf5 for inspection.
   generation_keep_failed: true
   generation_num_trials: 200
   generation_select_src_per_subtask: true
   generation_transform_first_robot_pose: false
   generation_interpolate_from_last_target_pose: true
   generation_relative: true
+  # The project wrapper stops after this many failures, preventing unbounded failed HDF5 growth at 0% success.
   max_num_failures: 50
   seed: 1
   action_noise: 0.02
   interpolation_steps: 5
   fixed_steps: 0
+  apply_noise_during_interpolation: false
+  selection_nn_k: 3
+  # Generation uses position-priority pose IK by default: a 7D
+  # [dx, dy, dz, dRx, dRy, dRz, gripper] action interface with XYZ as the primary task.
+  generation_control_mode: position_priority_pose_ik
+  # null/omitted means use all robot.arm_joint_names for pose IK.
+  pose_ik_joint_names: null
+  orientation_weight: 0.25
+  orientation_max_step_rad: 0.15
+  ik_damping: 0.01
+  # Legacy Mimic-only wrist offset. Keep this at 0 for position-priority pose IK.
+  wrist_target_bias_rad: 0.0
   skillgen_name: koch_pick_place_skillgen
   skillgen_num_trials: 100
+  skillgen_interpolation_steps: 0
 
 app:
   enable_pinocchio: false

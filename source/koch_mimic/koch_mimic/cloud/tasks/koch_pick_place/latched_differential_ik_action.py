@@ -6,6 +6,7 @@ import torch
 
 from isaaclab.envs.mdp.actions.actions_cfg import DifferentialInverseKinematicsActionCfg
 from isaaclab.envs.mdp.actions.task_space_actions import DifferentialInverseKinematicsAction
+import isaaclab.utils.math as math_utils
 from isaaclab.utils import configclass
 
 
@@ -72,3 +73,81 @@ class LatchedDifferentialInverseKinematicsActionCfg(DifferentialInverseKinematic
 
     class_type: type = LatchedDifferentialInverseKinematicsAction
     zero_action_tolerance: float = 1e-6
+
+
+class PositionPriorityDifferentialInverseKinematicsAction(LatchedDifferentialInverseKinematicsAction):
+    """Latched IK that solves XYZ first and uses orientation only in the remaining motion."""
+
+    cfg: "PositionPriorityDifferentialInverseKinematicsActionCfg"
+
+    def apply_actions(self):
+        ee_pos_curr, ee_quat_curr = self._compute_frame_pose()
+        joint_pos = self._asset.data.joint_pos[:, self._joint_ids]
+        if ee_quat_curr.norm() == 0:
+            joint_pos_des = joint_pos.clone()
+        elif self.cfg.controller.command_type == "pose" and self.cfg.controller.use_relative_mode:
+            jacobian = self._compute_frame_jacobian()
+            joint_pos_des = joint_pos + self._compute_position_priority_delta(
+                ee_pos_curr,
+                ee_quat_curr,
+                jacobian,
+            )
+        else:
+            jacobian = self._compute_frame_jacobian()
+            joint_pos_des = self._ik_controller.compute(ee_pos_curr, ee_quat_curr, jacobian, joint_pos)
+        self._asset.set_joint_position_target(joint_pos_des, self._joint_ids)
+
+    def _compute_position_priority_delta(
+        self,
+        ee_pos_curr: torch.Tensor,
+        ee_quat_curr: torch.Tensor,
+        jacobian: torch.Tensor,
+    ) -> torch.Tensor:
+        position_error, axis_angle_error = math_utils.compute_pose_error(
+            ee_pos_curr,
+            ee_quat_curr,
+            self._ik_controller.ee_pos_des,
+            self._ik_controller.ee_quat_des,
+            rot_error_type="axis_angle",
+        )
+        axis_angle_error = self._limit_orientation_step(axis_angle_error)
+
+        jacobian_pos = jacobian[:, :3, :]
+        jacobian_ori = jacobian[:, 3:, :]
+
+        dq_pos = (self._damped_pinv(jacobian_pos) @ position_error.unsqueeze(-1)).squeeze(-1)
+        jacobian_pos_pinv = torch.linalg.pinv(jacobian_pos)
+        eye = torch.eye(jacobian_pos.shape[-1], dtype=jacobian.dtype, device=jacobian.device)
+        nullspace = eye.unsqueeze(0) - jacobian_pos_pinv @ jacobian_pos
+
+        residual_ori = axis_angle_error - (jacobian_ori @ dq_pos.unsqueeze(-1)).squeeze(-1)
+        jacobian_ori_null = jacobian_ori @ nullspace
+        dq_ori_null = (self._damped_pinv(jacobian_ori_null) @ residual_ori.unsqueeze(-1)).squeeze(-1)
+        dq_ori = (nullspace @ dq_ori_null.unsqueeze(-1)).squeeze(-1)
+
+        return dq_pos + float(self.cfg.orientation_weight) * dq_ori
+
+    def _damped_pinv(self, jacobian: torch.Tensor) -> torch.Tensor:
+        damping = float(self.cfg.ik_damping)
+        rows = jacobian.shape[-2]
+        eye = torch.eye(rows, dtype=jacobian.dtype, device=jacobian.device).unsqueeze(0)
+        regularized = jacobian @ jacobian.transpose(-1, -2) + (damping * damping) * eye
+        return jacobian.transpose(-1, -2) @ torch.linalg.inv(regularized)
+
+    def _limit_orientation_step(self, axis_angle_error: torch.Tensor) -> torch.Tensor:
+        max_step = float(self.cfg.orientation_max_step_rad)
+        if max_step <= 0.0:
+            return axis_angle_error
+        angle = torch.linalg.norm(axis_angle_error, dim=-1, keepdim=True)
+        scale = torch.clamp(max_step / torch.clamp(angle, min=1.0e-9), max=1.0)
+        return axis_angle_error * scale
+
+
+@configclass
+class PositionPriorityDifferentialInverseKinematicsActionCfg(LatchedDifferentialInverseKinematicsActionCfg):
+    """Differential IK config for position-primary pose tracking."""
+
+    class_type: type = PositionPriorityDifferentialInverseKinematicsAction
+    orientation_weight: float = 0.25
+    orientation_max_step_rad: float = 0.15
+    ik_damping: float = 0.01

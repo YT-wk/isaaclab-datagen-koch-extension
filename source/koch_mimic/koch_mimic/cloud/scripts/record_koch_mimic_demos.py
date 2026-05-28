@@ -193,7 +193,7 @@ def resolve_runtime_args(args: argparse.Namespace, argv: list[str]) -> None:
         args.gripper_close_delta = get_config_section(config, "teleop", "stream", "gripper_close_delta", default=None)
     if args.gripper_close_direction is None:
         args.gripper_close_direction = str(
-            get_config_section(config, "teleop", "stream", "gripper_close_direction", default="positive")
+            get_config_section(config, "teleop", "stream", "gripper_close_direction", default="negative")
         )
     if args.zero_on_start is None:
         args.zero_on_start = bool(

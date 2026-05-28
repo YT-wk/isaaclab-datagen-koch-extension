@@ -474,10 +474,19 @@ def teleop_mode_startup_messages(teleop_mode: ResolvedTeleopMode, args_cli) -> l
     """Build user-facing startup messages for the selected mode."""
     messages: list[str] = []
     if teleop_mode.remote_master_arm:
+        gripper_close_delta = args_cli.gripper_close_delta
+        gripper_close_delta_text = "auto" if gripper_close_delta is None else f"{float(gripper_close_delta):.4f} rad"
         messages.append(
             "Waiting for master-arm stream on "
             f"{args_cli.stream_host}:{args_cli.stream_port}. "
             "Start stream_koch_leader_over_ssh.py on the local machine after this script is ready."
+        )
+        messages.append(
+            "Remote gripper mapping: "
+            f"leader close direction={args_cli.gripper_close_direction}, "
+            f"close delta={gripper_close_delta_text}. "
+            "If closing the physical leader opens the simulated gripper, flip "
+            "teleop.stream.gripper_close_direction between positive and negative."
         )
     if teleop_mode.device_name == MOBILE_REMOTE_MASTER_ARM_TELEOP_DEVICE_NAME:
         messages.append("Hybrid mode enabled: keyboard controls the mecanum base while the remote master arm controls the arm.")

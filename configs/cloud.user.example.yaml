@@ -27,8 +27,66 @@ teleop:
     port: 55000
     joint_signs: [1.0, 1.0, 1.0, 1.0, -1.0]
     joint_offsets: [0.139626, -0.785398, -1.570796, 1.396263, -1.570796]
+    # If closing the physical leader gripper opens the simulated gripper, flip this value.
+    gripper_close_direction: negative
 
 robot:
   base_pos: [-0.94787, 0.24217, 0.06]
   base_rot: [1.0, 0.0, 0.0, 0.0]
+  # Current Koch gripper asset convention: larger angle opens, smaller angle closes.
+  gripper_open_command_rad: 1.3962634016
+  gripper_close_command_rad: -0.1745329252
+  # Success/subtask logic treats gripper progress <= open threshold as open and >= closed threshold as closed.
+  # Lower open threshold if release is counted too early; raise it if released objects are not counted.
+  gripper_open_progress_threshold: 0.35
+  gripper_closed_progress_threshold: 0.65
 
+objects:
+  # Object reset/init region relative to the robot base.
+  # Use these when the initial object positions are too close/far or outside the arm workspace.
+  spawn_z: 0.0203
+  init_distance_to_base_m: 0.305
+  init_ab_distance_m: 0.2
+  randomize_radius_range_m: [0.28, 0.33]
+  forward_angle_range_rad: [-0.6, 0.6]
+  randomize_yaw_range_rad: [-1.0, 1.0]
+  ab_distance_range_m: [0.15, 0.25]
+  randomize_max_sample_tries: 200
+  drop_minimum_height: -0.05
+
+success:
+  # Auto-annotation grasp signal. Useful when Isaac Lab Mimic says it did not detect "grasp_obj_a".
+  # For long/offset objects, enlarge distance; for loose grasps, lower lift height.
+  grasp_distance_threshold_m: 0.12
+  grasp_lift_height_threshold_m: 0.015
+  grasp_require_gripper_closed: true
+  grasp_lifted_requires_gripper_closed: true
+  # object_a must be inside this box-shaped region of object_b to count as placed in the container.
+  # Coordinates are in object_b local frame, in meters.
+  container_xy_half_size_m: [0.12, 0.12]
+  container_z_range_m: [0.0, 0.20]
+  container_center_offset_m: [0.0, 0.0, 0.0]
+  require_gripper_open: true
+
+mimic:
+  # First debug run recommendation:
+  # - use 5-10 trials
+  # - set action_noise to 0.0
+  # - set generation_guarantee to false if you only want to inspect attempts
+  generation_guarantee: true
+  generation_keep_failed: true
+  generation_num_trials: 200
+  max_num_failures: 50
+  action_noise: 0.0
+  interpolation_steps: 5
+  fixed_steps: 0
+  apply_noise_during_interpolation: false
+  selection_nn_k: 3
+  # 7D generation control: XYZ stays primary, orientation only assists in the remaining motion.
+  generation_control_mode: position_priority_pose_ik
+  pose_ik_joint_names: null
+  orientation_weight: 0.25
+  orientation_max_step_rad: 0.15
+  ik_damping: 0.01
+  # Legacy Mimic-only wrist target offset. Keep 0.0 for position-priority pose IK.
+  wrist_target_bias_rad: 0.0
