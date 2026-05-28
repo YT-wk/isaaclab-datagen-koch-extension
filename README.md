@@ -81,10 +81,21 @@ cp configs/local.user.example.yaml configs/local.user.local.yaml
 
 四种设备遥操效果视频：
 
-- [Fixed base + keyboard arm](https://github.com/user-attachments/assets/79490d78-5274-4205-91a6-4af35ee0e04f)
-- [Mobile base + keyboard arm](https://github.com/user-attachments/assets/735bbd1c-0710-4d0f-8b93-ab4ad5a14406)
-- [Fixed base + remote master arm](https://github.com/user-attachments/assets/b69c1bc0-4e4c-4093-bdd0-1148e4e4abaa)
-- [Mobile base + remote master arm](https://github.com/user-attachments/assets/a2497755-ddfa-422c-82af-fe3a9e748360)
+Fixed base + keyboard arm
+
+<video src="https://github.com/user-attachments/assets/79490d78-5274-4205-91a6-4af35ee0e04f" controls width="720"></video>
+
+Mobile base + keyboard arm
+
+<video src="https://github.com/user-attachments/assets/735bbd1c-0710-4d0f-8b93-ab4ad5a14406" controls width="720"></video>
+
+Fixed base + remote master arm
+
+<video src="https://github.com/user-attachments/assets/b69c1bc0-4e4c-4093-bdd0-1148e4e4abaa" controls width="720"></video>
+
+Mobile base + remote master arm
+
+<video src="https://github.com/user-attachments/assets/a2497755-ddfa-422c-82af-fe3a9e748360" controls width="720"></video>
 
 ```bash
 # Fixed base + keyboard arm
@@ -171,7 +182,7 @@ cp configs/local.user.example.yaml configs/local.user.local.yaml
 
 生成数据集的成功轨迹效果视频：
 
-- [Mimic generated successful trajectory](https://github.com/user-attachments/assets/d625aa62-d13c-4c68-8252-c770a3b37760)
+<video src="https://github.com/user-attachments/assets/d625aa62-d13c-4c68-8252-c770a3b37760" controls width="720"></video>
 
 ## 本地运行
 

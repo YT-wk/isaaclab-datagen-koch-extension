@@ -1,5 +1,6 @@
 configs/cloud.user.local.yaml
 configs/local.user.local.yaml
+MODIFICATION_LOG.md
 
 # Python cache and build artifacts
 __pycache__/
